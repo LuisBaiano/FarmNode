@@ -1,0 +1,24 @@
+
+services:
+  server:
+    build:
+      context: .
+      dockerfile: cmd/server/Dockerfile
+    container_name: estufa_servidor
+    ports:
+      - "8080:8080/udp"
+    environment:
+      - ATUADOR_HOST=client
+      - ATUADOR_PORT=9000
+    # depends_on:
+    #   - client
+
+  client:
+    build:
+      context: .
+      dockerfile: cmd/client/Dockerfile
+    container_name: estufa_cliente
+    depends_on:
+      - server
+    ports:
+      - "9000:9000"
