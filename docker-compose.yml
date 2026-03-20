@@ -1,24 +1,18 @@
-
 services:
   server:
     build:
       context: .
       dockerfile: cmd/server/Dockerfile
-    container_name: estufa_servidor
-    ports:
-      - "8080:8080/udp"
-    environment:
-      - ATUADOR_HOST=client
-      - ATUADOR_PORT=9000
-    # depends_on:
-    #   - client
+    container_name: farmnode_servidor
+    # Usa a rede local da sua máquina (Linux) para enxergar os IPs 127.x.x.x
+    network_mode: "host" 
 
   client:
     build:
       context: .
       dockerfile: cmd/client/Dockerfile
-    container_name: estufa_cliente
+    container_name: farmnode_cliente
     depends_on:
       - server
-    ports:
-      - "9000:9000"
+    # O cliente também precisa estar na mesma rede host para abrir as portas nos IPs únicos
+    network_mode: "host"

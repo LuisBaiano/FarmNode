@@ -11,35 +11,79 @@ import (
 	"FarmNode/internal/state"
 )
 
-// Rodar simula o comportamento físico de uma estufa
-func Rodar(estufaID string, conexaoUDP *net.UDPConn) {
-	umidadeAtual := 20.0 + rand.Float64()*10.0
+// IniciarSensorEstufa simula o ambiente físico da estufa
+func IniciarSensorEstufa(nodeID, sensorID, tipo, ipOrigem, unidade string) {
+	localAddr, _ := net.ResolveUDPAddr("udp4", ipOrigem)
+	serverAddr, _ := net.ResolveUDPAddr("udp4", "127.0.0.1:8080")
+	conn, err := net.DialUDP("udp4", localAddr, serverAddr)
+	if err != nil {
+		logger.Sensor.Fatalf("Erro na conexão UDP %s: %v", ipOrigem, err)
+	}
+	defer conn.Close()
+
+	// Valores iniciais baseados no tipo do sensor
+	var valorAtual float64
+	switch tipo {
+	case "umidade":
+		valorAtual = 40.0
+	case "temperatura":
+		valorAtual = 25.0
+	case "luminosidade":
+		valorAtual = 500.0 // Medido em Lux
+	}
 
 	for {
-		// Leitura segura do estado da bomba
+		// 1. Lê os estados dos atuadores com segurança (Mutex)
 		state.Mutex.Lock()
-		bombaEstaLigada := state.Ligadas[estufaID]
+		bombaLigada := state.BombaIrrigacao[nodeID]
+		ventiladorLigado := state.Ventilador[nodeID]
+		ledLigado := state.LuzArtifical[nodeID]
 		state.Mutex.Unlock()
 
-		if bombaEstaLigada {
-			umidadeAtual += rand.Float64() * 6.0
-			logger.Sensor.Printf("%s Irrigando... Umidade: %.1f%%", estufaID, umidadeAtual)
-		} else {
-			umidadeAtual -= rand.Float64() * 1.5
+		// 2. Aplica a física do ambiente (se o atuador ligar, o valor reage)
+		switch tipo {
+		case "umidade":
+			if bombaLigada {
+				valorAtual += 5.0 // Terra molhando rápido
+			} else {
+				valorAtual -= 0.5 // Secando devagar
+			}
+		case "temperatura":
+			if ventiladorLigado {
+				valorAtual -= 1.0 // Esfriando
+			} else {
+				valorAtual += 0.2 // Efeito estufa esquentando devagar
+			}
+		case "luminosidade":
+			if ledLigado {
+				valorAtual = 800.0 // Luz artificial no máximo
+			} else {
+				// Flutuação natural do sol/nuvens
+				valorAtual = 300.0 + rand.Float64()*200.0
+			}
 		}
 
+		// Garante que a umidade não passe de 100% nem fique negativa
+		if valorAtual > 100 && tipo == "umidade" {
+			valorAtual = 100
+		}
+		if valorAtual < 0 {
+			valorAtual = 0
+		}
+
+		// 3. Monta e envia o pacote UDP
 		dados := models.MensagemSensor{
-			EstufaID:      estufaID,
-			SensorID:      "sensor_umidade_01",
-			Tipo:          "umidade",
-			Valor:         umidadeAtual,
-			Unidade:       "%",
+			NodeID:        nodeID,
+			SensorID:      sensorID,
+			Tipo:          tipo,
+			Valor:         valorAtual,
+			Unidade:       unidade,
 			Timestamp:     time.Now(),
 			StatusLeitura: "normal",
 		}
 
 		dadosJSON, _ := json.Marshal(dados)
-		conexaoUDP.Write(dadosJSON)
+		conn.Write(dadosJSON)
 
 		time.Sleep(2 * time.Second)
 	}
