@@ -2,7 +2,7 @@ package models
 
 import "time"
 
-// MensagemSensor representa os dados enviados via UDP (Telemetria)
+// MensagemSensor representa os dados enviados via TCP (Telemetria)
 type MensagemSensor struct {
 	NodeID        string    `json:"node_id"`
 	SensorID      string    `json:"sensor_id"`

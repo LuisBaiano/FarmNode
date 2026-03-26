@@ -14,26 +14,26 @@ import (
 // Cada atuador tem seu próprio IP e Porta exclusivos
 var TabelaAtuadores = map[string]map[string]string{
 	"Estufa_A": {
-		"bomba_irrigacao_01": "127.0.1.10:6001",
-		"ventilador_01":      "127.0.1.11:6002",
-		"painel_led_01":      "127.0.1.12:6003",
+		"bomba_irrigacao_01": "localhost:6001",
+		"ventilador_01":      "localhost:6002",
+		"painel_led_01":      "localhost:6003",
 	},
 	"Galinheiro_A": {
-		"exaustor_teto_01":   "127.0.2.10:6001",
-		"aquecedor_01":       "127.0.2.11:6002",
-		"motor_comedouro_01": "127.0.2.12:6003",
-		"valvula_agua_01":    "127.0.2.13:6004",
+		"exaustor_teto_01":   "localhost:6004",
+		"aquecedor_01":       "localhost:6005",
+		"motor_comedouro_01": "localhost:6006",
+		"valvula_agua_01":    "localhost:6007",
 	},
 	"Estufa_B": {
-		"bomba_irrigacao_01": "127.0.3.10:6001",
-		"ventilador_01":      "127.0.3.11:6002",
-		"painel_led_01":      "127.0.3.12:6003",
+		"bomba_irrigacao_01": "localhost:6008",
+		"ventilador_01":      "localhost:6009",
+		"painel_led_01":      "localhost:6010",
 	},
 	"Galinheiro_B": {
-		"exaustor_teto_01":   "127.0.4.10:6001",
-		"aquecedor_01":       "127.0.4.11:6002",
-		"motor_comedouro_01": "127.0.4.12:6003",
-		"valvula_agua_01":    "127.0.4.13:6004",
+		"exaustor_teto_01":   "localhost:6011",
+		"aquecedor_01":       "localhost:6012",
+		"motor_comedouro_01": "localhost:6013",
+		"valvula_agua_01":    "localhost:6014",
 	},
 }
 

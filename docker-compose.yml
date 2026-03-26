@@ -1,18 +1,146 @@
+version: '3.8'
+
 services:
   server:
     build:
       context: .
       dockerfile: cmd/server/Dockerfile
     container_name: farmnode_servidor
-    # Usa a rede local da sua máquina (Linux) para enxergar os IPs 127.x.x.x
-    network_mode: "host" 
+    ports:
+      - "8080:8080"
+      - "8081:8081"
+    networks:
+      - farmnet
+    environment:
+      - LOG_LEVEL=info
 
-  client:
+  # Sensores Estufa_A
+  sensor_umidade_estufa_a:
     build:
       context: .
       dockerfile: cmd/client/Dockerfile
-    container_name: farmnode_cliente
+    container_name: sensor_umidade_estufa_a
+    command: ["./client", "-sensor", "umidade", "-node", "Estufa_A"]
+    environment:
+      - SERVER_IP=server:8080
+    networks:
+      - farmnet
     depends_on:
       - server
-    # O cliente também precisa estar na mesma rede host para abrir as portas nos IPs únicos
-    network_mode: "host"
+
+  sensor_temperatura_estufa_a:
+    build:
+      context: .
+      dockerfile: cmd/client/Dockerfile
+    container_name: sensor_temperatura_estufa_a
+    command: ["./client", "-sensor", "temperatura", "-node", "Estufa_A"]
+    environment:
+      - SERVER_IP=server:8080
+    networks:
+      - farmnet
+    depends_on:
+      - server
+
+  sensor_luminosidade_estufa_a:
+    build:
+      context: .
+      dockerfile: cmd/client/Dockerfile
+    container_name: sensor_luminosidade_estufa_a
+    command: ["./client", "-sensor", "luminosidade", "-node", "Estufa_A"]
+    environment:
+      - SERVER_IP=server:8080
+    networks:
+      - farmnet
+    depends_on:
+      - server
+
+  # Sensores Galinheiro_A
+  sensor_amonia_galinheiro_a:
+    build:
+      context: .
+      dockerfile: cmd/client/Dockerfile
+    container_name: sensor_amonia_galinheiro_a
+    command: ["./client", "-sensor", "amonia", "-node", "Galinheiro_A"]
+    environment:
+      - SERVER_IP=server:8080
+    networks:
+      - farmnet
+    depends_on:
+      - server
+
+  sensor_temperatura_galinheiro_a:
+    build:
+      context: .
+      dockerfile: cmd/client/Dockerfile
+    container_name: sensor_temperatura_galinheiro_a
+    command: ["./client", "-sensor", "temperatura", "-node", "Galinheiro_A"]
+    environment:
+      - SERVER_IP=server:8080
+    networks:
+      - farmnet
+    depends_on:
+      - server
+
+  sensor_racao_galinheiro_a:
+    build:
+      context: .
+      dockerfile: cmd/client/Dockerfile
+    container_name: sensor_racao_galinheiro_a
+    command: ["./client", "-sensor", "racao", "-node", "Galinheiro_A"]
+    environment:
+      - SERVER_IP=server:8080
+    networks:
+      - farmnet
+    depends_on:
+      - server
+
+  sensor_agua_galinheiro_a:
+    build:
+      context: .
+      dockerfile: cmd/client/Dockerfile
+    container_name: sensor_agua_galinheiro_a
+    command: ["./client", "-sensor", "agua", "-node", "Galinheiro_A"]
+    environment:
+      - SERVER_IP=server:8080
+    networks:
+      - farmnet
+    depends_on:
+      - server
+
+  # Atuadores
+  atuador_bomba_irrigacao:
+    build:
+      context: .
+      dockerfile: cmd/client/Dockerfile
+    container_name: atuador_bomba_irrigacao
+    command: ["./client", "-atuador", "bomba_irrigacao_01"]
+    ports:
+      - "6001:6001"
+    networks:
+      - farmnet
+
+  atuador_ventilador:
+    build:
+      context: .
+      dockerfile: cmd/client/Dockerfile
+    container_name: atuador_ventilador
+    command: ["./client", "-atuador", "ventilador_01"]
+    ports:
+      - "6002:6002"
+    networks:
+      - farmnet
+
+  atuador_exaustor:
+    build:
+      context: .
+      dockerfile: cmd/client/Dockerfile
+    container_name: atuador_exaustor
+    command: ["./client", "-atuador", "exaustor_teto_01"]
+    ports:
+      - "6003:6003"
+    networks:
+      - farmnet
+
+networks:
+  farmnet:
+    driver: bridge

@@ -3,6 +3,7 @@ package simulador
 import (
 	"encoding/json"
 	"net"
+	"os"
 	"time"
 
 	"FarmNode/internal/logger"
@@ -12,11 +13,13 @@ import (
 
 // IniciarSensorGalinheiro simula o ambiente físico do galinheiro
 func IniciarSensorGalinheiro(nodeID, sensorID, tipo, ipOrigem, unidade string) {
-	localAddr, _ := net.ResolveUDPAddr("udp4", ipOrigem)
-	serverAddr, _ := net.ResolveUDPAddr("udp4", "127.0.0.1:8080")
-	conn, err := net.DialUDP("udp4", localAddr, serverAddr)
+	serverIP := os.Getenv("SERVER_IP")
+	if serverIP == "" {
+		serverIP = "127.0.0.1:8080" // Padrão para localhost
+	}
+	conn, err := net.Dial("tcp", serverIP)
 	if err != nil {
-		logger.Sensor.Fatalf("Erro na conexão UDP %s: %v", ipOrigem, err)
+		logger.Sensor.Fatalf("Erro na conexão TCP %s: %v", ipOrigem, err)
 	}
 	defer conn.Close()
 
@@ -86,7 +89,7 @@ func IniciarSensorGalinheiro(nodeID, sensorID, tipo, ipOrigem, unidade string) {
 		}
 
 		dadosJSON, _ := json.Marshal(dados)
-		conn.Write(dadosJSON)
+		conn.Write(append(dadosJSON, '\n'))
 
 		time.Sleep(2 * time.Second)
 	}

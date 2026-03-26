@@ -6,6 +6,14 @@ var (
 	// Mutex garante que apenas uma thread acesse os mapas por vez
 	Mutex sync.Mutex
 
+	// NOVO: Memória em tempo real dos valores numéricos dos sensores
+	ValoresSensores = map[string]map[string]float64{
+		"Estufa_A":     make(map[string]float64),
+		"Estufa_B":     make(map[string]float64),
+		"Galinheiro_A": make(map[string]float64),
+		"Galinheiro_B": make(map[string]float64),
+	}
+
 	// --- ESTADOS DOS ATUADORES (true = Ligado, false = Desligado) ---
 	// Estufas (3 Atuadores)
 	BombaIrrigacao = make(map[string]bool)
@@ -28,5 +36,5 @@ var (
 	AlvoAmoniaMaxima = map[string]float64{"Galinheiro_A": 20.0, "Galinheiro_B": 20.0}
 	AlvoTempMinima   = map[string]float64{"Galinheiro_A": 24.0, "Galinheiro_B": 24.0}
 	AlvoRacaoMinima  = map[string]float64{"Galinheiro_A": 10.0, "Galinheiro_B": 10.0}
-	AlvoAguaMinima   = map[string]float64{"Galinheiro_A": 15.0, "Galinheiro_B": 15.0} // Controle de Água
+	AlvoAguaMinima   = map[string]float64{"Galinheiro_A": 15.0, "Galinheiro_B": 15.0}
 )
