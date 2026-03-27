@@ -1,0 +1,99 @@
+version: "3.8"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# FarmNode v3 — Sensores (Notebook)
+#
+# Conecta-se ao Servidaor em: 192.168.101.7:8080 (UDP)
+# Todos os sensores enviam dados via UDP para o servidor central
+# ═══════════════════════════════════════════════════════════════════════════════
+
+services:
+  # ─── Sensores Estufa_A ─────────────────────────────────────────────────────
+  sensor_umidade_estufa_a:
+    build:
+      context: .
+      dockerfile: cmd/client/Dockerfile
+    container_name: sensor_umidade_estufa_a
+    command: ["./client_exec", "-sensor", "umidade", "-node", "Estufa_A"]
+    environment:
+      - SERVER_IP=${SERVER_IP:-192.168.101.7:8080}
+    networks:
+      - sensores_net
+    restart: on-failure
+
+  sensor_temperatura_estufa_a:
+    build:
+      context: .
+      dockerfile: cmd/client/Dockerfile
+    container_name: sensor_temperatura_estufa_a
+    command: ["./client_exec", "-sensor", "temperatura", "-node", "Estufa_A"]
+    environment:
+      - SERVER_IP=${SERVER_IP:-192.168.101.7:8080}
+    networks:
+      - sensores_net
+    restart: on-failure
+
+  sensor_luminosidade_estufa_a:
+    build:
+      context: .
+      dockerfile: cmd/client/Dockerfile
+    container_name: sensor_luminosidade_estufa_a
+    command: ["./client_exec", "-sensor", "luminosidade", "-node", "Estufa_A"]
+    environment:
+      - SERVER_IP=${SERVER_IP:-192.168.101.7:8080}
+    networks:
+      - sensores_net
+    restart: on-failure
+
+  # ─── Sensores Galinheiro_A ─────────────────────────────────────────────────
+  sensor_amonia_galinheiro_a:
+    build:
+      context: .
+      dockerfile: cmd/client/Dockerfile
+    container_name: sensor_amonia_galinheiro_a
+    command: ["./client_exec", "-sensor", "amonia", "-node", "Galinheiro_A"]
+    environment:
+      - SERVER_IP=${SERVER_IP:-192.168.101.7:8080}
+    networks:
+      - sensores_net
+    restart: on-failure
+
+  sensor_temperatura_galinheiro_a:
+    build:
+      context: .
+      dockerfile: cmd/client/Dockerfile
+    container_name: sensor_temperatura_galinheiro_a
+    command: ["./client_exec", "-sensor", "temperatura", "-node", "Galinheiro_A"]
+    environment:
+      - SERVER_IP=${SERVER_IP:-192.168.101.7:8080}
+    networks:
+      - sensores_net
+    restart: on-failure
+
+  sensor_racao_galinheiro_a:
+    build:
+      context: .
+      dockerfile: cmd/client/Dockerfile
+    container_name: sensor_racao_galinheiro_a
+    command: ["./client_exec", "-sensor", "racao", "-node", "Galinheiro_A"]
+    environment:
+      - SERVER_IP=${SERVER_IP:-192.168.101.7:8080}
+    networks:
+      - sensores_net
+    restart: on-failure
+
+  sensor_agua_galinheiro_a:
+    build:
+      context: .
+      dockerfile: cmd/client/Dockerfile
+    container_name: sensor_agua_galinheiro_a
+    command: ["./client_exec", "-sensor", "agua", "-node", "Galinheiro_A"]
+    environment:
+      - SERVER_IP=${SERVER_IP:-192.168.101.7:8080}
+    networks:
+      - sensores_net
+    restart: on-failure
+
+networks:
+  sensores_net:
+    driver: bridge

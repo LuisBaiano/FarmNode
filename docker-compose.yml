@@ -1,20 +1,39 @@
 version: '3.8'
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# FarmNode v3 — Arquitetura distribuída multi-host
+#
+# Protocolos:
+#   Sensores  → Servidor : UDP  porta 8080  (fire-and-forget, sem conexão)
+#   Servidor  → Atuadores: TCP  porta 9090  (uma porta única para todos)
+#   Dashboard → Browser  : HTTP porta 8081 (mapeada para 8082 no host)
+#
+# Variáveis de ambiente:
+#   SERVER_IP    : IP:porta do servidor UDP (usado pelos sensores)
+#   ATUADOR_HOST : IP do host onde os atuadores estão rodando (usado pelo servidor)
+# ═══════════════════════════════════════════════════════════════════════════════
+
 services:
+
+  # ─── Servidor Central ──────────────────────────────────────────────────────
   server:
     build:
       context: .
       dockerfile: cmd/server/Dockerfile
     container_name: farmnode_servidor
     ports:
+      - "8080:8080/udp"  # Recebe datagramas UDP dos sensores
       - "8080:8080"
-      - "8081:8081"
+      - "8082:8082"      # Dashboard HTTP
     networks:
       - farmnet
     environment:
       - LOG_LEVEL=info
+      # IP do host/container onde os atuadores estão rodando
+      - ATUADOR_HOST=atuadores
+    restart: on-failure
 
-  # Sensores Estufa_A
+  # ─── Sensores Estufa_A ─────────────────────────────────────────────────────
   sensor_umidade_estufa_a:
     build:
       context: .
@@ -22,11 +41,10 @@ services:
     container_name: sensor_umidade_estufa_a
     command: ["./client", "-sensor", "umidade", "-node", "Estufa_A"]
     environment:
-      - SERVER_IP=server:8080
+      - SERVER_IP=${IP_SERVIDOR}:8080
     networks:
       - farmnet
-    depends_on:
-      - server
+    restart: on-failure
 
   sensor_temperatura_estufa_a:
     build:
@@ -35,11 +53,10 @@ services:
     container_name: sensor_temperatura_estufa_a
     command: ["./client", "-sensor", "temperatura", "-node", "Estufa_A"]
     environment:
-      - SERVER_IP=server:8080
+      - SERVER_IP=${IP_SERVIDOR}:8080
     networks:
       - farmnet
-    depends_on:
-      - server
+    restart: on-failure
 
   sensor_luminosidade_estufa_a:
     build:
@@ -48,13 +65,12 @@ services:
     container_name: sensor_luminosidade_estufa_a
     command: ["./client", "-sensor", "luminosidade", "-node", "Estufa_A"]
     environment:
-      - SERVER_IP=server:8080
+      - SERVER_IP=${IP_SERVIDOR}:8080
     networks:
       - farmnet
-    depends_on:
-      - server
+    restart: on-failure
 
-  # Sensores Galinheiro_A
+  # ─── Sensores Galinheiro_A ─────────────────────────────────────────────────
   sensor_amonia_galinheiro_a:
     build:
       context: .
@@ -62,11 +78,10 @@ services:
     container_name: sensor_amonia_galinheiro_a
     command: ["./client", "-sensor", "amonia", "-node", "Galinheiro_A"]
     environment:
-      - SERVER_IP=server:8080
+      - SERVER_IP=${IP_SERVIDOR}:8080
     networks:
       - farmnet
-    depends_on:
-      - server
+    restart: on-failure
 
   sensor_temperatura_galinheiro_a:
     build:
@@ -75,11 +90,10 @@ services:
     container_name: sensor_temperatura_galinheiro_a
     command: ["./client", "-sensor", "temperatura", "-node", "Galinheiro_A"]
     environment:
-      - SERVER_IP=server:8080
+      - SERVER_IP=${IP_SERVIDOR}:8080
     networks:
       - farmnet
-    depends_on:
-      - server
+    restart: on-failure
 
   sensor_racao_galinheiro_a:
     build:
@@ -88,11 +102,10 @@ services:
     container_name: sensor_racao_galinheiro_a
     command: ["./client", "-sensor", "racao", "-node", "Galinheiro_A"]
     environment:
-      - SERVER_IP=server:8080
+      - SERVER_IP=${IP_SERVIDOR}:8080
     networks:
       - farmnet
-    depends_on:
-      - server
+    restart: on-failure
 
   sensor_agua_galinheiro_a:
     build:
@@ -101,45 +114,23 @@ services:
     container_name: sensor_agua_galinheiro_a
     command: ["./client", "-sensor", "agua", "-node", "Galinheiro_A"]
     environment:
-      - SERVER_IP=server:8080
+      - SERVER_IP=${IP_SERVIDOR}:8080
     networks:
       - farmnet
-    depends_on:
-      - server
+    restart: on-failure
 
-  # Atuadores
-  atuador_bomba_irrigacao:
+  # ─── Atuadores (porta única 9090) ──────────────────────────────────────────
+  atuadores:
     build:
       context: .
       dockerfile: cmd/client/Dockerfile
-    container_name: atuador_bomba_irrigacao
+    container_name: farmnode_atuadores
     command: ["./client", "-atuador", "bomba_irrigacao_01"]
     ports:
-      - "6001:6001"
+      - "9090:9090"   # Porta única TCP para todos os atuadores
     networks:
       - farmnet
-
-  atuador_ventilador:
-    build:
-      context: .
-      dockerfile: cmd/client/Dockerfile
-    container_name: atuador_ventilador
-    command: ["./client", "-atuador", "ventilador_01"]
-    ports:
-      - "6002:6002"
-    networks:
-      - farmnet
-
-  atuador_exaustor:
-    build:
-      context: .
-      dockerfile: cmd/client/Dockerfile
-    container_name: atuador_exaustor
-    command: ["./client", "-atuador", "exaustor_teto_01"]
-    ports:
-      - "6003:6003"
-    networks:
-      - farmnet
+    restart: on-failure
 
 networks:
   farmnet:

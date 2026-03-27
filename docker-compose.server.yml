@@ -1,0 +1,48 @@
+version: "3.8"
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# FarmNode v3 — Servidor + Atuadores (PC 192.168.101.7)
+#
+# Protocolos:
+#   Sensores  → Servidor : UDP  porta 8080  (fire-and-forget, sem conexão)
+#   Servidor  → Atuadores: TCP  porta 9090  (uma porta única para todos)
+#   Dashboard → Browser  : HTTP porta 8082
+# ═══════════════════════════════════════════════════════════════════════════════
+
+services:
+  # ─── Servidor Central ──────────────────────────────────────────────────────
+  server:
+    build:
+      context: .
+      dockerfile: cmd/server/Dockerfile
+    container_name: farmnode_servidor
+    ports:
+      - "8080:8080/udp" # Recebe datagramas UDP dos sensores
+      - "8080:8080" # Interface HTTP
+      - "8082:8082" # Dashboard HTTP
+    networks:
+      - farmnet
+    environment:
+      - LOG_LEVEL=info
+      # Atuadores rodam no mesmo PC que o servidor
+      - ATUADOR_HOST=atuadores
+    restart: on-failure
+
+  # ─── Atuadores (porta única 9090) ─────────────────────────────────────────
+  # Todos os atuadores compartilham UM único listener TCP na porta 9090.
+  # O roteamento para o atuador correto é feito pelo campo AtuadorID no JSON.
+  atuadores:
+    build:
+      context: .
+      dockerfile: cmd/client/Dockerfile
+    container_name: farmnode_atuadores
+    command: ["./client_exec", "-atuador", "bomba_irrigacao_01"]
+    ports:
+      - "9090:9090" # Porta única TCP para todos os atuadores
+    networks:
+      - farmnet
+    restart: on-failure
+
+networks:
+  farmnet:
+    driver: bridge

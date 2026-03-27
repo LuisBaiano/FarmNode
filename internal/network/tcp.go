@@ -3,6 +3,7 @@ package network
 import (
 	"encoding/json"
 	"net"
+	"os"
 	"time"
 
 	"FarmNode/internal/logger"
@@ -10,45 +11,32 @@ import (
 	"FarmNode/internal/state"
 )
 
-// Tabela de Roteamento dos Atuadores
-// Cada atuador tem seu próprio IP e Porta exclusivos
-var TabelaAtuadores = map[string]map[string]string{
-	"Estufa_A": {
-		"bomba_irrigacao_01": "localhost:6001",
-		"ventilador_01":      "localhost:6002",
-		"painel_led_01":      "localhost:6003",
-	},
-	"Galinheiro_A": {
-		"exaustor_teto_01":   "localhost:6004",
-		"aquecedor_01":       "localhost:6005",
-		"motor_comedouro_01": "localhost:6006",
-		"valvula_agua_01":    "localhost:6007",
-	},
-	"Estufa_B": {
-		"bomba_irrigacao_01": "localhost:6008",
-		"ventilador_01":      "localhost:6009",
-		"painel_led_01":      "localhost:6010",
-	},
-	"Galinheiro_B": {
-		"exaustor_teto_01":   "localhost:6011",
-		"aquecedor_01":       "localhost:6012",
-		"motor_comedouro_01": "localhost:6013",
-		"valvula_agua_01":    "localhost:6014",
-	},
+const (
+	// PortaAtuadores é a ÚNICA porta TCP usada por todos os atuadores.
+	// O servidor se conecta nessa porta no host onde os atuadores estão rodando.
+	// O roteamento para o atuador correto é feito pelo campo AtuadorID no JSON.
+	PortaAtuadores = "9090"
+)
+
+// enderecoAtuadores retorna o host:porta onde os atuadores estão escutando.
+// Configurável via variável de ambiente ATUADOR_HOST (ex: 192.168.1.103).
+// Padrão: localhost (para rodar tudo na mesma máquina).
+func enderecoAtuadores() string {
+	host := os.Getenv("ATUADOR_HOST")
+	if host == "" {
+		host = "localhost"
+	}
+	return host + ":" + PortaAtuadores
 }
 
-// EnviarComandoTCP é usado pelo Servidor Central para discar para o IP exato do atuador
+// EnviarComandoTCP envia um comando para o host de atuadores na porta única 9090.
+// O atuador correto é identificado pelo campo AtuadorID dentro do JSON.
 func EnviarComandoTCP(nodeID, atuadorID, acao, motivo string) {
-	// Busca o IP/Porta específico do atuador na tabela
-	enderecoAtuador, existe := TabelaAtuadores[nodeID][atuadorID]
-	if !existe {
-		logger.Atuador.Printf("Erro: Atuador %s não encontrado no node %s", atuadorID, nodeID)
-		return
-	}
+	endereco := enderecoAtuadores()
 
-	conn, err := net.Dial("tcp", enderecoAtuador)
+	conn, err := net.DialTimeout("tcp", endereco, 2*time.Second)
 	if err != nil {
-		logger.Atuador.Printf("Erro ao conectar no atuador %s em %s: %v", atuadorID, enderecoAtuador, err)
+		logger.Atuador.Printf("[TCP] Não foi possível conectar em %s (atuadores): %v", endereco, err)
 		return
 	}
 	defer conn.Close()
@@ -61,54 +49,74 @@ func EnviarComandoTCP(nodeID, atuadorID, acao, motivo string) {
 		TimestampOrdem:    time.Now(),
 	}
 
-	json.NewEncoder(conn).Encode(comando)
-	logger.Atuador.Printf("Ordem '%s' enviada para %s (%s)", acao, atuadorID, enderecoAtuador)
+	conn.SetWriteDeadline(time.Now().Add(2 * time.Second))
+	if err := json.NewEncoder(conn).Encode(comando); err != nil {
+		logger.Atuador.Printf("[TCP] Erro ao enviar comando %s/%s: %v", nodeID, atuadorID, err)
+		return
+	}
+
+	logger.Atuador.Printf("[TCP] '%s' enviado → %s/%s (%s)", acao, nodeID, atuadorID, endereco)
 }
 
-// EscutarComandosTCP agora escuta em um IP:Porta ESPECÍFICO, não mais de forma global
-func EscutarComandosTCP(ipPorta string, nodeID string, atuadorID string) {
+// EscutarComandosTCP inicia o listener TCP único na porta 9090.
+// Todos os atuadores da máquina compartilham esta porta.
+// O roteamento para o atuador correto é feito pelo campo AtuadorID no JSON recebido.
+// Deve ser chamado UMA VEZ no processo cliente, em goroutine separada.
+func EscutarComandosTCP(ipPorta string) {
 	listener, err := net.Listen("tcp", ipPorta)
 	if err != nil {
-		logger.Atuador.Fatalf("Erro ao iniciar atuador %s em %s: %v", atuadorID, ipPorta, err)
+		logger.Atuador.Fatalf("[TCP] Erro ao iniciar listener na porta %s: %v", ipPorta, err)
 	}
 	defer listener.Close()
+
+	logger.Atuador.Printf("[TCP] Listener de atuadores escutando em %s (porta única)", ipPorta)
 
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
+			logger.Atuador.Printf("[TCP] Erro ao aceitar conexão: %v", err)
 			continue
 		}
-
-		var comando models.ComandoAtuador
-		if err := json.NewDecoder(conn).Decode(&comando); err != nil {
-			conn.Close()
-			continue
-		}
-
-		// Altera o estado do sistema de forma segura baseado no ID do Atuador
-		state.Mutex.Lock()
-		estado := comando.Comando == "LIGAR"
-
-		switch comando.AtuadorID {
-		case "bomba_irrigacao_01":
-			state.BombaIrrigacao[comando.NodeID] = estado
-		case "ventilador_01":
-			state.Ventilador[comando.NodeID] = estado
-		case "painel_led_01":
-			state.LuzArtifical[comando.NodeID] = estado
-		case "exaustor_teto_01":
-			state.Exaustor[comando.NodeID] = estado
-		case "aquecedor_01":
-			state.Aquecedor[comando.NodeID] = estado
-		case "motor_comedouro_01":
-			state.MotorComedouro[comando.NodeID] = estado
-		case "valvula_agua_01":
-			state.ValvulaAgua[comando.NodeID] = estado
-		}
-
-		logger.Atuador.Printf("[%s] %s -> %s", ipPorta, atuadorID, comando.Comando)
-		state.Mutex.Unlock()
-
-		conn.Close()
+		go processarComando(conn)
 	}
+}
+
+// processarComando decodifica o JSON recebido e roteia para o atuador correto
+// com base no campo AtuadorID.
+func processarComando(conn net.Conn) {
+	defer conn.Close()
+
+	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+
+	var comando models.ComandoAtuador
+	if err := json.NewDecoder(conn).Decode(&comando); err != nil {
+		logger.Atuador.Printf("[TCP] Erro ao decodificar comando: %v", err)
+		return
+	}
+
+	estado := comando.Comando == "LIGAR"
+
+	state.Mutex.Lock()
+	switch comando.AtuadorID {
+	case "bomba_irrigacao_01":
+		state.BombaIrrigacao[comando.NodeID] = estado
+	case "ventilador_01":
+		state.Ventilador[comando.NodeID] = estado
+	case "painel_led_01":
+		state.LuzArtifical[comando.NodeID] = estado
+	case "exaustor_teto_01":
+		state.Exaustor[comando.NodeID] = estado
+	case "aquecedor_01":
+		state.Aquecedor[comando.NodeID] = estado
+	case "motor_comedouro_01":
+		state.MotorComedouro[comando.NodeID] = estado
+	case "valvula_agua_01":
+		state.ValvulaAgua[comando.NodeID] = estado
+	default:
+		logger.Atuador.Printf("[TCP] AtuadorID desconhecido: %s", comando.AtuadorID)
+	}
+	state.Mutex.Unlock()
+
+	logger.Atuador.Printf("[TCP:%s] %s/%s → %s (%s)",
+		PortaAtuadores, comando.NodeID, comando.AtuadorID, comando.Comando, comando.MotivoAcionamento)
 }
