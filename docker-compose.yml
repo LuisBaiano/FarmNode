@@ -1,44 +1,130 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# FarmNode v3 — Tudo na mesma máquina (desenvolvimento/teste local)
+# FarmNode v3 — Desenvolvimento local (tudo na mesma maquina)
 #
-# Para rodar em máquinas separadas use:
-#   PC      → docker-compose_server.yml
-#   Notebook → docker-compose_sensors.yml
+# Para rodar em maquinas separadas:
+#   Servidor   -> docker-compose_server.yml
+#   Atuadores  -> docker-compose_actuators.yml  (SERVER_ADDR=ip_servidor:6000)
+#   Sensores   -> docker-compose_sensors.yml    (SERVER_ADDR=ip_servidor)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 services:
 
+  # ─── Servidor ──────────────────────────────────────────────────────────────
   server:
     build:
       context: .
       dockerfile: cmd/server/Dockerfile
     container_name: farmnode_servidor
     ports:
-      - "8080:8080/udp"  # UDP: sensores
-      - "8082:8082"      # HTTP: dashboard
+      - "8080:8080/udp"   # Sensores (UDP)
+      - "6000:6000"       # Atuadores (TCP porta unica)
+      - "8082:8082"       # Dashboard + WebSocket
     networks:
       - farmnet
-    environment:
-      - LOG_LEVEL=info
-      - ATUADOR_HOST=atuadores
-    depends_on:
-      - atuadores
+    volumes:
+      - ./logs:/app/logs
     restart: on-failure
 
-  # Atuadores — porta única 9090 para todos
-  atuadores:
+  # ─── Atuadores (um container cada, conectam ao servidor em :6000) ─────────
+  atuador_bomba:
     build:
       context: .
       dockerfile: cmd/client/Dockerfile
-    container_name: farmnode_atuadores
-    command: ["./client_exec", "-atuador"]
-    ports:
-      - "9090:9090"
+    container_name: atuador_bomba
+    command: ["./client_exec", "-atuador", "bomba_irrigacao_01"]
+    environment:
+      - SERVER_ADDR=server:6000
     networks:
       - farmnet
+    depends_on:
+      - server
     restart: on-failure
 
-  # ─── Sensores Estufa_A ─────────────────────────────────────────────────────
+  atuador_ventilador:
+    build:
+      context: .
+      dockerfile: cmd/client/Dockerfile
+    container_name: atuador_ventilador
+    command: ["./client_exec", "-atuador", "ventilador_01"]
+    environment:
+      - SERVER_ADDR=server:6000
+    networks:
+      - farmnet
+    depends_on:
+      - server
+    restart: on-failure
+
+  atuador_led:
+    build:
+      context: .
+      dockerfile: cmd/client/Dockerfile
+    container_name: atuador_led
+    command: ["./client_exec", "-atuador", "painel_led_01"]
+    environment:
+      - SERVER_ADDR=server:6000
+    networks:
+      - farmnet
+    depends_on:
+      - server
+    restart: on-failure
+
+  atuador_exaustor:
+    build:
+      context: .
+      dockerfile: cmd/client/Dockerfile
+    container_name: atuador_exaustor
+    command: ["./client_exec", "-atuador", "exaustor_teto_01"]
+    environment:
+      - SERVER_ADDR=server:6000
+    networks:
+      - farmnet
+    depends_on:
+      - server
+    restart: on-failure
+
+  atuador_aquecedor:
+    build:
+      context: .
+      dockerfile: cmd/client/Dockerfile
+    container_name: atuador_aquecedor
+    command: ["./client_exec", "-atuador", "aquecedor_01"]
+    environment:
+      - SERVER_ADDR=server:6000
+    networks:
+      - farmnet
+    depends_on:
+      - server
+    restart: on-failure
+
+  atuador_motor:
+    build:
+      context: .
+      dockerfile: cmd/client/Dockerfile
+    container_name: atuador_motor
+    command: ["./client_exec", "-atuador", "motor_comedouro_01"]
+    environment:
+      - SERVER_ADDR=server:6000
+    networks:
+      - farmnet
+    depends_on:
+      - server
+    restart: on-failure
+
+  atuador_valvula:
+    build:
+      context: .
+      dockerfile: cmd/client/Dockerfile
+    container_name: atuador_valvula
+    command: ["./client_exec", "-atuador", "valvula_agua_01"]
+    environment:
+      - SERVER_ADDR=server:6000
+    networks:
+      - farmnet
+    depends_on:
+      - server
+    restart: on-failure
+
+  # ─── Sensores Estufa A ────────────────────────────────────────────────────
   sensor_umidade_estufa_a:
     build:
       context: .
@@ -81,7 +167,7 @@ services:
       - server
     restart: on-failure
 
-  # ─── Sensores Galinheiro_A ─────────────────────────────────────────────────
+  # ─── Sensores Galinheiro A ────────────────────────────────────────────────
   sensor_amonia_galinheiro_a:
     build:
       context: .
@@ -140,4 +226,5 @@ services:
 
 networks:
   farmnet:
+    name: farmnet
     driver: bridge

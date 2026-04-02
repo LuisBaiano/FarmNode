@@ -14,18 +14,22 @@ import (
 	"FarmNode/internal/models"
 )
 
-// ── Estado local dos atuadores do galinheiro ─────────────────────────────────
-// Atualizado periodicamente via HTTP GET /api/estado no servidor.
+// Estado local dos atuadores do galinheiro.
+// Atualizado via HTTP GET /api/estado a cada 200ms.
+//
+// IMPORTANTE: sensores enviam APENAS dados crus.
+// Toda interpretacao e feita exclusivamente pelo SERVIDOR.
 
 var (
-	galinheiroEstadoMu   sync.RWMutex
-	galinheiroExaustor   = map[string]bool{}
-	galinheiroAquecedor  = map[string]bool{}
-	galinheiroMotor      = map[string]bool{}
-	galinheiroValvula    = map[string]bool{}
+	galinheiroEstadoMu  sync.RWMutex
+	galinheiroExaustor  = map[string]bool{}
+	galinheiroAquecedor = map[string]bool{}
+	galinheiroMotor     = map[string]bool{}
+	galinheiroValvula   = map[string]bool{}
 )
 
-// IniciarSensorGalinheiro simula o ambiente físico do galinheiro e envia dados via UDP.
+// IniciarSensorGalinheiro simula o ambiente fisico do galinheiro e envia dados via UDP a cada 1ms.
+// O sensor NAO interpreta os valores — apenas simula a fisica e envia dados crus.
 func IniciarSensorGalinheiro(nodeID, sensorID, tipo, serverAddr, unidade string) {
 	serverIP := os.Getenv("SERVER_IP")
 	if serverIP == "" {
@@ -37,13 +41,11 @@ func IniciarSensorGalinheiro(nodeID, sensorID, tipo, serverAddr, unidade string)
 
 	httpBase := deriveHTTPBase(serverIP)
 
-	// Goroutine que busca estado dos atuadores via HTTP a cada 2s
 	go pollEstadoGalinheiro(httpBase, nodeID)
 
-	// Socket UDP
 	enderecoServidor, err := net.ResolveUDPAddr("udp", serverIP)
 	if err != nil {
-		logger.Sensor.Fatalf("[%s/%s] Endereço UDP inválido (%s): %v", nodeID, sensorID, serverIP, err)
+		logger.Sensor.Fatalf("[%s/%s] Endereco UDP invalido: %v", nodeID, sensorID, err)
 	}
 	conn, err := net.DialUDP("udp", nil, enderecoServidor)
 	if err != nil {
@@ -51,19 +53,18 @@ func IniciarSensorGalinheiro(nodeID, sensorID, tipo, serverAddr, unidade string)
 	}
 	defer conn.Close()
 
-	logger.Sensor.Printf("[%s/%s] Iniciado (UDP → %s | HTTP estado → %s)", nodeID, sensorID, serverIP, httpBase)
+	logger.Sensor.Printf("[%s/%s] Enviando dados UDP -> %s (1ms)", nodeID, sensorID, serverIP)
 
-	// Valores iniciais realistas
 	var valorAtual float64
 	switch tipo {
 	case "amonia":
-		valorAtual = 3.0 + rand.Float64()*5.0   // começa entre 3-8 ppm (normal)
+		valorAtual = 3.0 + rand.Float64()*4.0
 	case "temperatura":
-		valorAtual = 26.0 + rand.Float64()*4.0  // começa entre 26-30°C
+		valorAtual = 26.0 + rand.Float64()*3.0
 	case "racao":
-		valorAtual = 70.0 + rand.Float64()*20.0 // começa entre 70-90%
+		valorAtual = 65.0 + rand.Float64()*20.0
 	case "agua":
-		valorAtual = 65.0 + rand.Float64()*20.0 // começa entre 65-85%
+		valorAtual = 60.0 + rand.Float64()*20.0
 	}
 
 	for {
@@ -74,78 +75,70 @@ func IniciarSensorGalinheiro(nodeID, sensorID, tipo, serverAddr, unidade string)
 		valvulaLigada   := galinheiroValvula[nodeID]
 		galinheiroEstadoMu.RUnlock()
 
-		// ── Física do ambiente ────────────────────────────────────────────────
+		// Fisica do ambiente — valores calibrados para demo de 10 minutos.
+		// Eventos aleatorios afetam o valor mas NAO sao logados aqui.
+		// O servidor detecta anomalias comparando o valor com os limiares.
 		switch tipo {
 
 		case "amonia":
-			// Acúmulo natural de amônia pelas fezes
-			acumulo := 0.3 + rand.Float64()*0.5 // entre +0.3 e +0.8 ppm por ciclo
+			// Sem exaustor: +0.6 a +1.0 ppm/s → limiar (20ppm) em ~21s a partir de 3ppm
+			// Com exaustor: -1.5 a -2.5 ppm/s  → recupera em ~8s
 			if exaustorLigado {
-				// Exaustor ventilando: reduz entre -1.5 e -3.0 ppm por ciclo
-				valorAtual -= 1.5 + rand.Float64()*1.5
+				valorAtual -= 0.0015 + rand.Float64()*0.0010
 			} else {
-				valorAtual += acumulo
+				valorAtual += 0.0006 + rand.Float64()*0.0004
 			}
-			// Evento crítico: 1% de chance de pico súbito de amônia
-			// (ex: lote de aves mais denso, calor extremo)
-			if rand.Float64() < 0.01 {
-				valorAtual += 8.0 + rand.Float64()*7.0
-				logger.Sensor.Printf("[%s] ⚠ Evento: pico de amônia detectado!", nodeID)
+			// Evento fisico: pico subito (sem log no sensor)
+			if rand.Float64() < 0.0010 {
+				valorAtual += 0.5 + rand.Float64()*1.5
 			}
 			valorAtual = clamp(valorAtual, 0, 100)
 
 		case "temperatura":
+			// Sem aquecedor: -0.1 a -0.3°C/s → limiar (24°C) em ~25s a partir de 29°C
+			// Com aquecedor: +0.4 a +0.8°C/s  → recupera em ~8s
 			if aquecedorLigado {
-				valorAtual += 0.8 + rand.Float64()*0.4 // aquece entre +0.8 e +1.2
+				valorAtual += 0.0004 + rand.Float64()*0.0004
 			} else {
-				valorAtual -= 0.1 + rand.Float64()*0.3 // esfria naturalmente
+				valorAtual -= 0.0001 + rand.Float64()*0.0002
 			}
-			// Variação natural ±0.1
-			valorAtual += (rand.Float64() - 0.5) * 0.2
+			valorAtual += (rand.Float64() - 0.5) * 0.0001
 			valorAtual = clamp(valorAtual, 10, 45)
 
 		case "racao":
-			// Aves comem continuamente — consumo variável
-			consumo := 0.4 + rand.Float64()*0.8 // entre -0.4 e -1.2 por ciclo
+			// Sem motor: -1.0 a -2.0%/s → limiar (10%) em ~37s a partir de 65%
+			// Com motor: +6 a +10%/s    → recupera em ~10s
 			if motorLigado {
-				// Motor abastecendo: enche entre +6 e +12 por ciclo
-				valorAtual += 6.0 + rand.Float64()*6.0
+				valorAtual += 0.0060 + rand.Float64()*0.0040
 			} else {
-				valorAtual -= consumo
+				valorAtual -= 0.0010 + rand.Float64()*0.0010
 			}
-			// Evento crítico: 1.5% de chance de falha no motor (não abastece mesmo ligado)
-			// Isso faz o nível cair abaixo do crítico sem que o motor consiga reagir
-			if motorLigado && rand.Float64() < 0.015 {
-				valorAtual -= 3.0 + rand.Float64()*4.0
-				logger.Sensor.Printf("[%s] ⚠ Evento: falha no motor comedouro! Ração não reposta.", nodeID)
+			// Eventos fisicos: falha no motor / consumo acelerado (sem log no sensor)
+			if motorLigado && rand.Float64() < 0.0005 {
+				valorAtual -= 0.3 + rand.Float64()*0.5
 			}
-			// Evento crítico: 0.8% de chance de consumo repentino alto
-			// (ex: muitas aves com fome, briga no comedouro)
-			if !motorLigado && rand.Float64() < 0.008 {
-				valorAtual -= 4.0 + rand.Float64()*4.0
-				logger.Sensor.Printf("[%s] ⚠ Evento: consumo acelerado de ração!", nodeID)
+			if !motorLigado && rand.Float64() < 0.0003 {
+				valorAtual -= 0.3 + rand.Float64()*0.5
 			}
 			valorAtual = clamp(valorAtual, 0, 100)
 
 		case "agua":
-			// Consumo contínuo pelas aves
-			consumo := 0.5 + rand.Float64()*1.0 // entre -0.5 e -1.5 por ciclo
+			// Sem valvula: -1.0 a -2.0%/s → limiar (15%) em ~30s a partir de 60%
+			// Com valvula: +8 a +12%/s    → recupera em ~6s
 			if valvulaLigada {
-				// Válvula aberta: enche entre +8 e +16 por ciclo
-				valorAtual += 8.0 + rand.Float64()*8.0
+				valorAtual += 0.0080 + rand.Float64()*0.0040
 			} else {
-				valorAtual -= consumo
+				valorAtual -= 0.0010 + rand.Float64()*0.0010
 			}
-			// Evento crítico: 1% de chance de vazamento
-			if rand.Float64() < 0.01 {
-				valorAtual -= 5.0 + rand.Float64()*8.0
-				logger.Sensor.Printf("[%s] ⚠ Evento: possível vazamento no bebedouro!", nodeID)
+			// Evento fisico: vazamento (sem log no sensor)
+			if rand.Float64() < 0.0004 {
+				valorAtual -= 0.3 + rand.Float64()*0.7
 			}
 			valorAtual = clamp(valorAtual, 0, 100)
 		}
 
-		// Envia datagrama UDP
-		dados := models.MensagemSensor{
+		// Envia dado cru via UDP — sem interpretacao, sem log de evento
+		dadosJSON, err := json.Marshal(models.MensagemSensor{
 			NodeID:        nodeID,
 			SensorID:      sensorID,
 			Tipo:          tipo,
@@ -153,27 +146,19 @@ func IniciarSensorGalinheiro(nodeID, sensorID, tipo, serverAddr, unidade string)
 			Unidade:       unidade,
 			Timestamp:     time.Now(),
 			StatusLeitura: "normal",
+		})
+		if err == nil {
+			conn.SetWriteDeadline(time.Now().Add(1 * time.Second))
+			conn.Write(dadosJSON)
 		}
 
-		dadosJSON, err := json.Marshal(dados)
-		if err != nil {
-			logger.Sensor.Printf("[%s/%s] Erro ao serializar: %v", nodeID, sensorID, err)
-			time.Sleep(2 * time.Second)
-			continue
-		}
-
-		conn.SetWriteDeadline(time.Now().Add(2 * time.Second))
-		if _, err := conn.Write(dadosJSON); err != nil {
-			logger.Sensor.Printf("[%s/%s] Erro ao enviar UDP: %v", nodeID, sensorID, err)
-		}
-
-		time.Sleep(2 * time.Second)
+		time.Sleep(1 * time.Millisecond)
 	}
 }
 
-// pollEstadoGalinheiro busca o estado dos atuadores no servidor a cada 2s via HTTP
+// pollEstadoGalinheiro consulta o estado dos atuadores a cada 200ms.
 func pollEstadoGalinheiro(httpBase, nodeID string) {
-	client := &http.Client{Timeout: 3 * time.Second}
+	client := &http.Client{Timeout: 2 * time.Second}
 	for {
 		func() {
 			resp, err := client.Get(httpBase + "/api/estado")
@@ -181,22 +166,18 @@ func pollEstadoGalinheiro(httpBase, nodeID string) {
 				return
 			}
 			defer resp.Body.Close()
-
 			body, err := io.ReadAll(resp.Body)
 			if err != nil {
 				return
 			}
-
 			var estado map[string]map[string]interface{}
 			if err := json.Unmarshal(body, &estado); err != nil {
 				return
 			}
-
 			node, ok := estado[nodeID]
 			if !ok {
 				return
 			}
-
 			galinheiroEstadoMu.Lock()
 			galinheiroExaustor[nodeID]  = toBool(node["exaustor_ligado"])
 			galinheiroAquecedor[nodeID] = toBool(node["aquecedor_ligado"])
@@ -204,6 +185,6 @@ func pollEstadoGalinheiro(httpBase, nodeID string) {
 			galinheiroValvula[nodeID]   = toBool(node["valvula_ligada"])
 			galinheiroEstadoMu.Unlock()
 		}()
-		time.Sleep(2 * time.Second)
+		time.Sleep(200 * time.Millisecond)
 	}
 }

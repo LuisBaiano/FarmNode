@@ -1,10 +1,13 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# FarmNode v3 — Servidor + Atuadores
+# FarmNode v3 — Servidor
 #
-# Protocolos:
-#   Sensores  → Servidor : UDP  porta 8080
-#   Servidor  → Atuadores: TCP  porta 9090  (porta única para todos)
-#   Dashboard → Browser  : HTTP porta 8082
+# Uso:
+#   docker-compose -f docker-compose.server.yml up --build
+#
+# Portas:
+#   8080/udp — sensores enviam datagramas UDP aqui
+#   6000/tcp — atuadores CONECTAM ao servidor aqui (porta unica para todos)
+#   8082/tcp — dashboard HTTP + WebSocket (multiplos clientes simultaneos)
 # ═══════════════════════════════════════════════════════════════════════════════
 
 services:
@@ -14,29 +17,16 @@ services:
       dockerfile: cmd/server/Dockerfile
     container_name: farmnode_servidor
     ports:
-      - "8080:8080/udp"  # UDP: recebe datagramas dos sensores
-      - "8082:8082"      # HTTP: dashboard
+      - "8080:8080/udp" # Sensores -> Servidor (UDP, telemetria)
+      - "6000:6000" # Atuadores -> Servidor (TCP, porta unica)
+      - "8082:8082" # Dashboard (HTTP + WebSocket)
     networks:
       - farmnet
-    environment:
-      - LOG_LEVEL=info
-      - ATUADOR_HOST=atuadores  # nome do container na rede farmnet
-    restart: on-failure
-    depends_on:
-      - atuadores
-
-  atuadores:
-    build:
-      context: .
-      dockerfile: cmd/client/Dockerfile
-    container_name: farmnode_atuadores
-    command: ["./client_exec", "-atuador"]  # flag bool, sem argumento
-    ports:
-      - "9090:9090"  # TCP: porta única para todos os atuadores
-    networks:
-      - farmnet
+    volumes:
+      - ./logs:/app/logs
     restart: on-failure
 
 networks:
   farmnet:
+    name: farmnet
     driver: bridge

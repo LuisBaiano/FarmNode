@@ -1,90 +1,94 @@
 # ═══════════════════════════════════════════════════════════════════════════════
-# FarmNode v3 — Sensores (Notebook 192.168.101.24)
+# FarmNode v3 — Atuadores
 #
-# Uso:
-#   SERVER_ADDR=172.16.103.2 docker-compose -f docker-compose.sensors.yml up --build
+# Uso (mesma maquina que o servidor):
+#   docker-compose -f docker-compose_actuators.yml up --build
 #
-# Cada sensor envia datagramas UDP para SERVER_ADDR:8080
-# e busca estado dos atuadores em SERVER_ADDR:8082/api/estado
+# Uso em maquina diferente:
+#   SERVER_ADDR=192.168.101.7:6000 docker-compose -f docker-compose_actuators.yml up --build
+#
+# Arquitetura: atuadores CONECTAM ao servidor (nao o contrario).
+# Porta unica: todos os atuadores usam SERVER_ADDR:6000.
+# Nenhuma porta precisa ser exposta nos containers de atuadores.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 services:
 
   # ─── Estufa A ──────────────────────────────────────────────────────────────
-  sensor_umidade_estufa_a:
+  atuador_bomba:
     build:
       context: .
       dockerfile: cmd/client/Dockerfile
-    container_name: sensor_umidade_estufa_a
-    command: ["./client_exec", "-sensor", "umidade", "-node", "Estufa_A"]
+    container_name: atuador_bomba
+    command: ["./client_exec", "-atuador", "bomba_irrigacao_01"]
     environment:
-      - SERVER_IP=${SERVER_ADDR}:8080
+      - SERVER_ADDR=${SERVER_ADDR:-farmnode_servidor:6000}
     network_mode: host
     restart: on-failure
 
-  sensor_temperatura_estufa_a:
+  atuador_ventilador:
     build:
       context: .
       dockerfile: cmd/client/Dockerfile
-    container_name: sensor_temperatura_estufa_a
-    command: ["./client_exec", "-sensor", "temperatura", "-node", "Estufa_A"]
+    container_name: atuador_ventilador
+    command: ["./client_exec", "-atuador", "ventilador_01"]
     environment:
-      - SERVER_IP=${SERVER_ADDR}:8080
+      - SERVER_ADDR=${SERVER_ADDR:-farmnode_servidor:6000}
     network_mode: host
     restart: on-failure
 
-  sensor_luminosidade_estufa_a:
+  atuador_led:
     build:
       context: .
       dockerfile: cmd/client/Dockerfile
-    container_name: sensor_luminosidade_estufa_a
-    command: ["./client_exec", "-sensor", "luminosidade", "-node", "Estufa_A"]
+    container_name: atuador_led
+    command: ["./client_exec", "-atuador", "painel_led_01"]
     environment:
-      - SERVER_IP=${SERVER_ADDR}:8080
+      - SERVER_ADDR=${SERVER_ADDR:-farmnode_servidor:6000}
     network_mode: host
     restart: on-failure
 
   # ─── Galinheiro A ──────────────────────────────────────────────────────────
-  sensor_amonia_galinheiro_a:
+  atuador_exaustor:
     build:
       context: .
       dockerfile: cmd/client/Dockerfile
-    container_name: sensor_amonia_galinheiro_a
-    command: ["./client_exec", "-sensor", "amonia", "-node", "Galinheiro_A"]
+    container_name: atuador_exaustor
+    command: ["./client_exec", "-atuador", "exaustor_teto_01"]
     environment:
-      - SERVER_IP=${SERVER_ADDR}:8080
+      - SERVER_ADDR=${SERVER_ADDR:-farmnode_servidor:6000}
     network_mode: host
     restart: on-failure
 
-  sensor_temperatura_galinheiro_a:
+  atuador_aquecedor:
     build:
       context: .
       dockerfile: cmd/client/Dockerfile
-    container_name: sensor_temperatura_galinheiro_a
-    command: ["./client_exec", "-sensor", "temperatura", "-node", "Galinheiro_A"]
+    container_name: atuador_aquecedor
+    command: ["./client_exec", "-atuador", "aquecedor_01"]
     environment:
-      - SERVER_IP=${SERVER_ADDR}:8080
+      - SERVER_ADDR=${SERVER_ADDR:-farmnode_servidor:6000}
     network_mode: host
     restart: on-failure
 
-  sensor_racao_galinheiro_a:
+  atuador_motor:
     build:
       context: .
       dockerfile: cmd/client/Dockerfile
-    container_name: sensor_racao_galinheiro_a
-    command: ["./client_exec", "-sensor", "racao", "-node", "Galinheiro_A"]
+    container_name: atuador_motor
+    command: ["./client_exec", "-atuador", "motor_comedouro_01"]
     environment:
-      - SERVER_IP=${SERVER_ADDR}:8080
+      - SERVER_ADDR=${SERVER_ADDR:-farmnode_servidor:6000}
     network_mode: host
     restart: on-failure
 
-  sensor_agua_galinheiro_a:
+  atuador_valvula:
     build:
       context: .
       dockerfile: cmd/client/Dockerfile
-    container_name: sensor_agua_galinheiro_a
-    command: ["./client_exec", "-sensor", "agua", "-node", "Galinheiro_A"]
+    container_name: atuador_valvula
+    command: ["./client_exec", "-atuador", "valvula_agua_01"]
     environment:
-      - SERVER_IP=${SERVER_ADDR}:8080
+      - SERVER_ADDR=${SERVER_ADDR:-farmnode_servidor:6000}
     network_mode: host
     restart: on-failure

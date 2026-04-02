@@ -15,10 +15,14 @@ import (
 	"FarmNode/internal/models"
 )
 
-// ── Estado local dos atuadores da estufa ─────────────────────────────────────
-// Atualizado periodicamente via HTTP GET /api/estado no servidor.
-// Necessário porque em Docker cada sensor roda em container separado
-// e não compartilha memória com o processo dos atuadores.
+// Estado local dos atuadores da estufa.
+// Atualizado via HTTP GET /api/estado a cada 200ms.
+// Necessario porque em Docker cada sensor roda em container separado
+// e nao compartilha memoria com o servidor.
+//
+// IMPORTANTE: sensores enviam APENAS dados crus (valor numerico).
+// Toda interpretacao (alto, baixo, critico) e feita exclusivamente pelo SERVIDOR.
+// Nenhum log de "evento" deve aparecer nos containers de sensores.
 
 var (
 	estufaEstadoMu   sync.RWMutex
@@ -27,9 +31,9 @@ var (
 	estufaLed        = map[string]bool{}
 )
 
-// IniciarSensorEstufa simula o ambiente físico da estufa e envia dados via UDP.
-// Parâmetro serverAddr: endereço UDP do servidor (ex: "192.168.101.7:8080").
-// O endereço HTTP do dashboard é derivado automaticamente (porta 8082).
+// IniciarSensorEstufa simula o ambiente fisico da estufa e envia dados via UDP a cada 1ms.
+// O sensor NAO interpreta os valores — apenas simula a fisica e envia.
+// O servidor recebe, interpreta e decide acionar ou nao os atuadores.
 func IniciarSensorEstufa(nodeID, sensorID, tipo, serverAddr, unidade string) {
 	serverIP := os.Getenv("SERVER_IP")
 	if serverIP == "" {
@@ -39,16 +43,15 @@ func IniciarSensorEstufa(nodeID, sensorID, tipo, serverAddr, unidade string) {
 		serverIP = "localhost:8080"
 	}
 
-	// Deriva host HTTP a partir do SERVER_IP (troca porta por 8082)
 	httpBase := deriveHTTPBase(serverIP)
 
-	// Goroutine que busca estado dos atuadores via HTTP a cada 2s
+	// Consulta estado dos atuadores a cada 200ms via HTTP
+	// (estado e gerenciado pelo servidor, nao pelo sensor)
 	go pollEstadoEstufa(httpBase, nodeID)
 
-	// Socket UDP para envio de dados
 	enderecoServidor, err := net.ResolveUDPAddr("udp", serverIP)
 	if err != nil {
-		logger.Sensor.Fatalf("[%s/%s] Endereço UDP inválido (%s): %v", nodeID, sensorID, serverIP, err)
+		logger.Sensor.Fatalf("[%s/%s] Endereco UDP invalido: %v", nodeID, sensorID, err)
 	}
 	conn, err := net.DialUDP("udp", nil, enderecoServidor)
 	if err != nil {
@@ -56,75 +59,69 @@ func IniciarSensorEstufa(nodeID, sensorID, tipo, serverAddr, unidade string) {
 	}
 	defer conn.Close()
 
-	logger.Sensor.Printf("[%s/%s] Iniciado (UDP → %s | HTTP estado → %s)", nodeID, sensorID, serverIP, httpBase)
+	logger.Sensor.Printf("[%s/%s] Enviando dados UDP -> %s (1ms)", nodeID, sensorID, serverIP)
 
-	// Valores iniciais realistas
 	var valorAtual float64
 	switch tipo {
 	case "umidade":
-		valorAtual = 60.0 + rand.Float64()*20.0 // começa entre 60-80%
+		valorAtual = 60.0 + rand.Float64()*15.0
 	case "temperatura":
-		valorAtual = 22.0 + rand.Float64()*4.0  // começa entre 22-26°C
+		valorAtual = 22.0 + rand.Float64()*4.0
 	case "luminosidade":
 		valorAtual = 400.0 + rand.Float64()*200.0
 	}
 
 	for {
-		// Lê estado atual dos atuadores (atualizado pela goroutine HTTP)
 		estufaEstadoMu.RLock()
 		bombaLigada      := estufaBomba[nodeID]
 		ventiladorLigado := estufaVentilador[nodeID]
 		ledLigado        := estufaLed[nodeID]
 		estufaEstadoMu.RUnlock()
 
-		// ── Física do ambiente ────────────────────────────────────────────────
+		// Fisica do ambiente — valores calibrados para demo de 10 minutos.
+		// Eventos aleatorios afetam o valor mas NAO sao logados aqui.
+		// O servidor detecta anomalias comparando o valor recebido com os limiares.
 		switch tipo {
 
 		case "umidade":
-			// Evaporação natural com variação aleatória (simula clima)
-			decaimento := 0.3 + rand.Float64()*0.8 // entre -0.3 e -1.1 por ciclo
+			// Sem bomba: -1.5 a -2.5%/s → limiar (15%) em ~22s a partir de 60%
+			// Com bomba:  +5 a +9%/s    → recupera em ~6s
 			if bombaLigada {
-				// Bomba funcionando: sobe entre +3 e +7 por ciclo
-				valorAtual += 3.0 + rand.Float64()*4.0
+				valorAtual += 0.005 + rand.Float64()*0.004
 			} else {
-				valorAtual -= decaimento
+				valorAtual -= 0.0015 + rand.Float64()*0.0010
 			}
-			// Evento crítico simulado: 1% de chance de vazar mais rápido
-			// (ex: rachadura no substrato, dia muito quente)
-			if rand.Float64() < 0.01 {
-				valorAtual -= 3.0 + rand.Float64()*4.0
-				logger.Sensor.Printf("[%s] ⚠ Evento: drenagem rápida detectada!", nodeID)
+			// Evento fisico: drenagem rapida (afeta o valor, sem log no sensor)
+			if rand.Float64() < 0.0010 {
+				valorAtual -= 0.5 + rand.Float64()*1.0
 			}
 			valorAtual = clamp(valorAtual, 0, 100)
 
 		case "temperatura":
+			// Sem ventilador: +0.4 a +0.8°C/s → limiar (35°C) em ~22s a partir de 22°C
+			// Com ventilador: -1.2 a -1.8°C/s  → recupera em ~7s
 			if ventiladorLigado {
-				valorAtual -= 0.8 + rand.Float64()*0.4 // resfria entre -0.8 e -1.2
+				valorAtual -= 0.0012 + rand.Float64()*0.0006
 			} else {
-				// Estufa esquenta naturalmente com o sol
-				valorAtual += 0.1 + rand.Float64()*0.3
+				valorAtual += 0.0004 + rand.Float64()*0.0004
 			}
-			// Variação natural ±0.1 (rajadas, nuvens)
-			valorAtual += (rand.Float64() - 0.5) * 0.2
-			// Evento crítico: 0.5% de chance de pico térmico
-			if rand.Float64() < 0.005 {
-				valorAtual += 4.0 + rand.Float64()*3.0
-				logger.Sensor.Printf("[%s] ⚠ Evento: pico térmico detectado!", nodeID)
+			valorAtual += (rand.Float64() - 0.5) * 0.0002
+			// Evento fisico: pico termico (afeta o valor, sem log no sensor)
+			if rand.Float64() < 0.0005 {
+				valorAtual += 0.3 + rand.Float64()*0.5
 			}
 			valorAtual = clamp(valorAtual, 10, 55)
 
 		case "luminosidade":
 			if ledLigado {
-				// LED ligado: valor estável em torno de 800 Lux ±50
-				valorAtual = 800.0 + (rand.Float64()-0.5)*100.0
+				valorAtual = 800.0 + (rand.Float64()-0.5)*60.0
 			} else {
-				// Luz natural: flutua entre 200 e 700 Lux (simula nuvens)
-				valorAtual = 200.0 + rand.Float64()*500.0
+				valorAtual = 150.0 + rand.Float64()*450.0
 			}
 		}
 
-		// Envia datagrama UDP
-		dados := models.MensagemSensor{
+		// Envia dado cru via UDP — sem interpretacao, sem log de evento
+		dadosJSON, err := json.Marshal(models.MensagemSensor{
 			NodeID:        nodeID,
 			SensorID:      sensorID,
 			Tipo:          tipo,
@@ -132,80 +129,61 @@ func IniciarSensorEstufa(nodeID, sensorID, tipo, serverAddr, unidade string) {
 			Unidade:       unidade,
 			Timestamp:     time.Now(),
 			StatusLeitura: "normal",
+		})
+		if err == nil {
+			conn.SetWriteDeadline(time.Now().Add(1 * time.Second))
+			conn.Write(dadosJSON)
 		}
 
-		dadosJSON, err := json.Marshal(dados)
-		if err != nil {
-			logger.Sensor.Printf("[%s/%s] Erro ao serializar: %v", nodeID, sensorID, err)
-			time.Sleep(2 * time.Second)
-			continue
-		}
-
-		conn.SetWriteDeadline(time.Now().Add(2 * time.Second))
-		if _, err := conn.Write(dadosJSON); err != nil {
-			logger.Sensor.Printf("[%s/%s] Erro ao enviar UDP: %v", nodeID, sensorID, err)
-		}
-
-		time.Sleep(2 * time.Second)
+		time.Sleep(1 * time.Millisecond)
 	}
 }
 
-// pollEstadoEstufa busca o estado dos atuadores no servidor a cada 2s via HTTP
+// pollEstadoEstufa consulta o estado dos atuadores no servidor a cada 200ms.
 func pollEstadoEstufa(httpBase, nodeID string) {
-	client := &http.Client{Timeout: 3 * time.Second}
+	client := &http.Client{Timeout: 2 * time.Second}
 	for {
 		func() {
 			resp, err := client.Get(httpBase + "/api/estado")
 			if err != nil {
-				return // servidor ainda não disponível, tenta na próxima
+				return
 			}
 			defer resp.Body.Close()
-
 			body, err := io.ReadAll(resp.Body)
 			if err != nil {
 				return
 			}
-
 			var estado map[string]map[string]interface{}
 			if err := json.Unmarshal(body, &estado); err != nil {
 				return
 			}
-
 			node, ok := estado[nodeID]
 			if !ok {
 				return
 			}
-
 			estufaEstadoMu.Lock()
 			estufaBomba[nodeID]      = toBool(node["bomba_ligada"])
 			estufaVentilador[nodeID] = toBool(node["ventilador_ligado"])
 			estufaLed[nodeID]        = toBool(node["led_ligado"])
 			estufaEstadoMu.Unlock()
 		}()
-		time.Sleep(2 * time.Second)
+		time.Sleep(200 * time.Millisecond)
 	}
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// ── Helpers compartilhados com galinheiro.go ──────────────────────────────────
 
 func clamp(v, min, max float64) float64 {
-	if v < min {
-		return min
-	}
-	if v > max {
-		return max
-	}
+	if v < min { return min }
+	if v > max { return max }
 	return v
 }
 
 func toBool(v interface{}) bool {
-	if b, ok := v.(bool); ok {
-		return b
-	}
+	if b, ok := v.(bool); ok { return b }
 	return false
 }
 
-// deriveHTTPBase extrai o host de "host:porta_udp" e monta "http://host:8082"
 func deriveHTTPBase(serverIP string) string {
 	host := serverIP
 	if idx := strings.LastIndex(serverIP, ":"); idx >= 0 {
