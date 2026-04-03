@@ -91,9 +91,12 @@ func IniciarSensorEstufa(nodeID, sensorID, tipo, serverAddr, unidade string) {
 			} else {
 				valorAtual -= 0.0015 + rand.Float64()*0.0010
 			}
-			// Evento fisico: drenagem rapida (afeta o valor, sem log no sensor)
-			if rand.Float64() < 0.0010 {
-				valorAtual -= 0.5 + rand.Float64()*1.0
+			// Evento catastrofico: ruptura/drenagem severa.
+			// Probabilidade: 0.00001/ms ≈ 0.01/s ≈ 9 eventos em 15min por sensor.
+			// Magnitude: -12 a -20% num unico ciclo — supera a recuperacao da bomba
+			// (+5-9%/s) e garante ultrapassar o limiar critico (5%).
+			if rand.Float64() < 0.000010 {
+				valorAtual -= 12.0 + rand.Float64()*8.0
 			}
 			valorAtual = clamp(valorAtual, 0, 100)
 
@@ -106,9 +109,11 @@ func IniciarSensorEstufa(nodeID, sensorID, tipo, serverAddr, unidade string) {
 				valorAtual += 0.0004 + rand.Float64()*0.0004
 			}
 			valorAtual += (rand.Float64() - 0.5) * 0.0002
-			// Evento fisico: pico termico (afeta o valor, sem log no sensor)
-			if rand.Float64() < 0.0005 {
-				valorAtual += 0.3 + rand.Float64()*0.5
+			// Evento catastrofico: pico termico severo (ex: falha no isolamento).
+			// Magnitude: +12 a +20°C — supera o resfriamento do ventilador
+			// e garante ultrapassar o limiar critico (45°C).
+			if rand.Float64() < 0.000010 {
+				valorAtual += 12.0 + rand.Float64()*8.0
 			}
 			valorAtual = clamp(valorAtual, 10, 55)
 

@@ -36,7 +36,7 @@ var (
 
 	// Estufa — Painel LED
 	// Liga quando luminosidade < Min, desliga quando > (Min * 2)
-	AlvoLuzMinima = map[string]float64{"Estufa_A": 300.0, "Estufa_B": 300.0}
+	AlvoLuzMinima = map[string]float64{"Estufa_A": 600.0, "Estufa_B": 600.0}
 
 	// Galinheiro — Exaustor (amonia)
 	// Liga quando amonia >= Max, desliga quando < (Max - 10 ppm)

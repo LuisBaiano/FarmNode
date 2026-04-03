@@ -88,9 +88,11 @@ func IniciarSensorGalinheiro(nodeID, sensorID, tipo, serverAddr, unidade string)
 			} else {
 				valorAtual += 0.0006 + rand.Float64()*0.0004
 			}
-			// Evento fisico: pico subito (sem log no sensor)
-			if rand.Float64() < 0.0010 {
-				valorAtual += 0.5 + rand.Float64()*1.5
+			// Evento catastrofico: pico maximo de amonia (ex: morte de aves, calor extremo).
+			// Magnitude: +18 a +30 ppm — supera a purga do exaustor (-1.5-2.5 ppm/s)
+			// e garante ultrapassar o limiar critico (35 ppm).
+			if rand.Float64() < 0.000010 {
+				valorAtual += 18.0 + rand.Float64()*12.0
 			}
 			valorAtual = clamp(valorAtual, 0, 100)
 
@@ -103,6 +105,12 @@ func IniciarSensorGalinheiro(nodeID, sensorID, tipo, serverAddr, unidade string)
 				valorAtual -= 0.0001 + rand.Float64()*0.0002
 			}
 			valorAtual += (rand.Float64() - 0.5) * 0.0001
+			// Evento catastrofico: queda brusca de temperatura (ex: porta aberta, falha eletrica).
+			// Magnitude: -12 a -18°C — supera o aquecimento (+0.4-0.8°C/s)
+			// e garante ultrapassar o limiar critico (15°C) a partir da temperatura normal (24-29°C).
+			if rand.Float64() < 0.000010 {
+				valorAtual -= 12.0 + rand.Float64()*6.0
+			}
 			valorAtual = clamp(valorAtual, 10, 45)
 
 		case "racao":
@@ -113,12 +121,11 @@ func IniciarSensorGalinheiro(nodeID, sensorID, tipo, serverAddr, unidade string)
 			} else {
 				valorAtual -= 0.0010 + rand.Float64()*0.0010
 			}
-			// Eventos fisicos: falha no motor / consumo acelerado (sem log no sensor)
-			if motorLigado && rand.Float64() < 0.0005 {
-				valorAtual -= 0.3 + rand.Float64()*0.5
-			}
-			if !motorLigado && rand.Float64() < 0.0003 {
-				valorAtual -= 0.3 + rand.Float64()*0.5
+			// Evento catastrofico: falha grave no comedouro / consumo explosivo.
+			// Magnitude: -8 a -15% — supera o abastecimento do motor (+6-10%/s)
+			// e garante ultrapassar o limiar critico (5%) quando proximo do limiar de ativacao (10%).
+			if rand.Float64() < 0.000010 {
+				valorAtual -= 8.0 + rand.Float64()*7.0
 			}
 			valorAtual = clamp(valorAtual, 0, 100)
 
@@ -130,9 +137,11 @@ func IniciarSensorGalinheiro(nodeID, sensorID, tipo, serverAddr, unidade string)
 			} else {
 				valorAtual -= 0.0010 + rand.Float64()*0.0010
 			}
-			// Evento fisico: vazamento (sem log no sensor)
-			if rand.Float64() < 0.0004 {
-				valorAtual -= 0.3 + rand.Float64()*0.7
+			// Evento catastrofico: rompimento do bebedouro / vazamento grave.
+			// Magnitude: -12 a -20% — supera o enchimento da valvula (+8-12%/s)
+			// e garante ultrapassar o limiar critico (5%).
+			if rand.Float64() < 0.000010 {
+				valorAtual -= 12.0 + rand.Float64()*8.0
 			}
 			valorAtual = clamp(valorAtual, 0, 100)
 		}
