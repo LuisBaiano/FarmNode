@@ -3,6 +3,7 @@ package simulador
 import (
 	"encoding/json"
 	"io"
+	"math"
 	"math/rand"
 	"net"
 	"net/http"
@@ -119,9 +120,26 @@ func IniciarSensorEstufa(nodeID, sensorID, tipo, serverAddr, unidade string) {
 
 		case "luminosidade":
 			if ledLigado {
-				valorAtual = 800.0 + (rand.Float64()-0.5)*60.0
+				// LED ligado: luz artificial estavel ~800 Lux com pequena variacao
+				alvo := 800.0
+				valorAtual += (alvo - valorAtual) * 0.05
+				valorAtual += (rand.Float64() - 0.5) * 8.0
 			} else {
-				valorAtual = 150.0 + rand.Float64()*450.0
+				// Ciclo dia/noite com periodo de 120s (5 ciclos completos em 10 min).
+				// Usa seno baseado no tempo real para que todos os sensores
+				// fiquem sincronizados no mesmo "horario do dia".
+				// Pico (meio-dia): ~750 Lux  |  Vale (meia-noite): ~0 Lux
+				// Limiar de ativacao LED: 300 Lux → LED liga por ~36s em cada ciclo.
+				periodoMs := int64(120000)
+				tMs       := time.Now().UnixNano() / 1e6
+				fase      := float64(tMs%periodoMs) / float64(periodoMs) // 0.0 a 1.0
+				luzSolar  := 750.0 * math.Sin(math.Pi*fase)
+				// Variacao suave de nuvens (±20 Lux) usando seno de alta frequencia
+				nuvens := 20.0 * math.Sin(float64(tMs)/3000.0)
+				alvo   := clamp(luzSolar+nuvens, 0, 800)
+				// Transicao suave: sensor segue o alvo gradualmente
+				valorAtual += (alvo - valorAtual) * 0.008
+				valorAtual  = clamp(valorAtual, 0, 800)
 			}
 		}
 

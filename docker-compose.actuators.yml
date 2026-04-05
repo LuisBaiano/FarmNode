@@ -22,7 +22,7 @@ services:
     container_name: atuador_bomba
     command: ["./client_exec", "-atuador", "bomba_irrigacao_01"]
     environment:
-      - SERVER_ADDR=${SERVER_ADDR:-farmnode_servidor:6000}
+      - SERVER_ADDR=${SERVER_ADDR:-farmnode_servidor}:6000
     network_mode: host
     restart: on-failure
 
@@ -33,7 +33,7 @@ services:
     container_name: atuador_ventilador
     command: ["./client_exec", "-atuador", "ventilador_01"]
     environment:
-      - SERVER_ADDR=${SERVER_ADDR:-farmnode_servidor:6000}
+      - SERVER_ADDR=${SERVER_ADDR:-farmnode_servidor}:6000
     network_mode: host
     restart: on-failure
 
@@ -44,7 +44,7 @@ services:
     container_name: atuador_led
     command: ["./client_exec", "-atuador", "painel_led_01"]
     environment:
-      - SERVER_ADDR=${SERVER_ADDR:-farmnode_servidor:6000}
+      - SERVER_ADDR=${SERVER_ADDR:-farmnode_servidor}:6000
     network_mode: host
     restart: on-failure
 
@@ -56,7 +56,7 @@ services:
     container_name: atuador_exaustor
     command: ["./client_exec", "-atuador", "exaustor_teto_01"]
     environment:
-      - SERVER_ADDR=${SERVER_ADDR:-farmnode_servidor:6000}
+      - SERVER_ADDR=${SERVER_ADDR:-farmnode_servidor}:6000
     network_mode: host
     restart: on-failure
 
@@ -67,7 +67,7 @@ services:
     container_name: atuador_aquecedor
     command: ["./client_exec", "-atuador", "aquecedor_01"]
     environment:
-      - SERVER_ADDR=${SERVER_ADDR:-farmnode_servidor:6000}
+      - SERVER_ADDR=${SERVER_ADDR:-farmnode_servidor}:6000
     network_mode: host
     restart: on-failure
 
@@ -78,7 +78,7 @@ services:
     container_name: atuador_motor
     command: ["./client_exec", "-atuador", "motor_comedouro_01"]
     environment:
-      - SERVER_ADDR=${SERVER_ADDR:-farmnode_servidor:6000}
+      - SERVER_ADDR=${SERVER_ADDR:-farmnode_servidor}:6000
     network_mode: host
     restart: on-failure
 
@@ -89,6 +89,6 @@ services:
     container_name: atuador_valvula
     command: ["./client_exec", "-atuador", "valvula_agua_01"]
     environment:
-      - SERVER_ADDR=${SERVER_ADDR:-farmnode_servidor:6000}
+      - SERVER_ADDR=${SERVER_ADDR:-farmnode_servidor}:6000
     network_mode: host
     restart: on-failure
