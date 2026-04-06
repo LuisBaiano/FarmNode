@@ -17,13 +17,12 @@ import (
 )
 
 // Estado local dos atuadores da estufa.
-// Atualizado via HTTP GET /api/estado a cada 200ms.
+// Atualizado via GET /api/estado a cada 200ms.
 // Necessario porque em Docker cada sensor roda em container separado
 // e nao compartilha memoria com o servidor.
-//
-// IMPORTANTE: sensores enviam APENAS dados crus (valor numerico).
-// Toda interpretacao (alto, baixo, critico) e feita exclusivamente pelo SERVIDOR.
-// Nenhum log de "evento" deve aparecer nos containers de sensores.
+// Importante: sensores enviam apenas dados crus.
+// A interpretacao e feita no servidor.
+// O sensor nao registra eventos.
 
 var (
 	estufaEstadoMu   sync.RWMutex
@@ -32,9 +31,9 @@ var (
 	estufaLed        = map[string]bool{}
 )
 
-// IniciarSensorEstufa simula o ambiente fisico da estufa e envia dados via UDP a cada 1ms.
-// O sensor NAO interpreta os valores — apenas simula a fisica e envia.
-// O servidor recebe, interpreta e decide acionar ou nao os atuadores.
+// Simula a estufa e envia dados via UDP a cada 1ms.
+// O sensor apenas simula e envia os valores.
+// O servidor decide os acionamentos.
 func IniciarSensorEstufa(nodeID, sensorID, tipo, serverAddr, unidade string) {
 	serverIP := os.Getenv("SERVER_IP")
 	if serverIP == "" {
@@ -74,45 +73,34 @@ func IniciarSensorEstufa(nodeID, sensorID, tipo, serverAddr, unidade string) {
 
 	for {
 		estufaEstadoMu.RLock()
-		bombaLigada      := estufaBomba[nodeID]
+		bombaLigada := estufaBomba[nodeID]
 		ventiladorLigado := estufaVentilador[nodeID]
-		ledLigado        := estufaLed[nodeID]
+		ledLigado := estufaLed[nodeID]
 		estufaEstadoMu.RUnlock()
 
-		// Fisica do ambiente — valores calibrados para demo de 10 minutos.
-		// Eventos aleatorios afetam o valor mas NAO sao logados aqui.
-		// O servidor detecta anomalias comparando o valor recebido com os limiares.
+		// Simulacao fisica do ambiente.
+		// Eventos aleatorios afetam o valor.
+		// Anomalias sao detectadas no servidor.
 		switch tipo {
 
 		case "umidade":
-			// Sem bomba: -1.5 a -2.5%/s → limiar (15%) em ~22s a partir de 60%
-			// Com bomba:  +5 a +9%/s    → recupera em ~6s
 			if bombaLigada {
 				valorAtual += 0.005 + rand.Float64()*0.004
 			} else {
 				valorAtual -= 0.0015 + rand.Float64()*0.0010
 			}
-			// Evento catastrofico: ruptura/drenagem severa.
-			// Probabilidade: 0.00001/ms ≈ 0.01/s ≈ 9 eventos em 15min por sensor.
-			// Magnitude: -12 a -20% num unico ciclo — supera a recuperacao da bomba
-			// (+5-9%/s) e garante ultrapassar o limiar critico (5%).
 			if rand.Float64() < 0.000010 {
 				valorAtual -= 12.0 + rand.Float64()*8.0
 			}
 			valorAtual = clamp(valorAtual, 0, 100)
 
 		case "temperatura":
-			// Sem ventilador: +0.4 a +0.8°C/s → limiar (35°C) em ~22s a partir de 22°C
-			// Com ventilador: -1.2 a -1.8°C/s  → recupera em ~7s
 			if ventiladorLigado {
 				valorAtual -= 0.0012 + rand.Float64()*0.0006
 			} else {
 				valorAtual += 0.0004 + rand.Float64()*0.0004
 			}
 			valorAtual += (rand.Float64() - 0.5) * 0.0002
-			// Evento catastrofico: pico termico severo (ex: falha no isolamento).
-			// Magnitude: +12 a +20°C — supera o resfriamento do ventilador
-			// e garante ultrapassar o limiar critico (45°C).
 			if rand.Float64() < 0.000010 {
 				valorAtual += 12.0 + rand.Float64()*8.0
 			}
@@ -120,30 +108,30 @@ func IniciarSensorEstufa(nodeID, sensorID, tipo, serverAddr, unidade string) {
 
 		case "luminosidade":
 			if ledLigado {
-				// LED ligado: luz artificial estavel ~800 Lux com pequena variacao
+				// LED ligado: luz artificial estavel.
 				alvo := 800.0
 				valorAtual += (alvo - valorAtual) * 0.05
 				valorAtual += (rand.Float64() - 0.5) * 8.0
 			} else {
-				// Ciclo dia/noite com periodo de 120s (5 ciclos completos em 10 min).
+				// Ciclo dia/noite com periodo de 120s.
 				// Usa seno baseado no tempo real para que todos os sensores
 				// fiquem sincronizados no mesmo "horario do dia".
 				// Pico (meio-dia): ~750 Lux  |  Vale (meia-noite): ~0 Lux
 				// Limiar de ativacao LED: 300 Lux → LED liga por ~36s em cada ciclo.
 				periodoMs := int64(120000)
-				tMs       := time.Now().UnixNano() / 1e6
-				fase      := float64(tMs%periodoMs) / float64(periodoMs) // 0.0 a 1.0
-				luzSolar  := 750.0 * math.Sin(math.Pi*fase)
-				// Variacao suave de nuvens (±20 Lux) usando seno de alta frequencia
+				tMs := time.Now().UnixNano() / 1e6
+				fase := float64(tMs%periodoMs) / float64(periodoMs) // 0.0 a 1.0
+				luzSolar := 750.0 * math.Sin(math.Pi*fase)
+				// Variacao suave de nuvens.
 				nuvens := 20.0 * math.Sin(float64(tMs)/3000.0)
-				alvo   := clamp(luzSolar+nuvens, 0, 800)
-				// Transicao suave: sensor segue o alvo gradualmente
+				alvo := clamp(luzSolar+nuvens, 0, 800)
+				// Transicao suave para o valor alvo.
 				valorAtual += (alvo - valorAtual) * 0.008
-				valorAtual  = clamp(valorAtual, 0, 800)
+				valorAtual = clamp(valorAtual, 0, 800)
 			}
 		}
 
-		// Envia dado cru via UDP — sem interpretacao, sem log de evento
+		// Envia dado cru via UDP.
 		dadosJSON, err := json.Marshal(models.MensagemSensor{
 			NodeID:        nodeID,
 			SensorID:      sensorID,
@@ -162,7 +150,7 @@ func IniciarSensorEstufa(nodeID, sensorID, tipo, serverAddr, unidade string) {
 	}
 }
 
-// pollEstadoEstufa consulta o estado dos atuadores no servidor a cada 200ms.
+// Consulta o estado dos atuadores a cada 200ms.
 func pollEstadoEstufa(httpBase, nodeID string) {
 	client := &http.Client{Timeout: 2 * time.Second}
 	for {
@@ -185,25 +173,29 @@ func pollEstadoEstufa(httpBase, nodeID string) {
 				return
 			}
 			estufaEstadoMu.Lock()
-			estufaBomba[nodeID]      = toBool(node["bomba_ligada"])
+			estufaBomba[nodeID] = toBool(node["bomba_ligada"])
 			estufaVentilador[nodeID] = toBool(node["ventilador_ligado"])
-			estufaLed[nodeID]        = toBool(node["led_ligado"])
+			estufaLed[nodeID] = toBool(node["led_ligado"])
 			estufaEstadoMu.Unlock()
 		}()
 		time.Sleep(200 * time.Millisecond)
 	}
 }
 
-// ── Helpers compartilhados com galinheiro.go ──────────────────────────────────
-
 func clamp(v, min, max float64) float64 {
-	if v < min { return min }
-	if v > max { return max }
+	if v < min {
+		return min
+	}
+	if v > max {
+		return max
+	}
 	return v
 }
 
 func toBool(v interface{}) bool {
-	if b, ok := v.(bool); ok { return b }
+	if b, ok := v.(bool); ok {
+		return b
+	}
 	return false
 }
 

@@ -3,10 +3,10 @@ package state
 import "sync"
 
 var (
-	// Mutex garante acesso seguro concorrente a todos os mapas
+	// Garante acesso concorrente seguro aos mapas.
 	Mutex sync.Mutex
 
-	// Valores em tempo real dos sensores (atualizados a cada datagrama UDP)
+	// Valores atuais dos sensores.
 	ValoresSensores = map[string]map[string]float64{
 		"Estufa_A":     make(map[string]float64),
 		"Estufa_B":     make(map[string]float64),
@@ -14,7 +14,6 @@ var (
 		"Galinheiro_B": make(map[string]float64),
 	}
 
-	// ── Estados dos atuadores (true = Ligado) ─────────────────────────────────
 	BombaIrrigacao = make(map[string]bool)
 	Ventilador     = make(map[string]bool)
 	LuzArtifical   = make(map[string]bool)
@@ -22,8 +21,6 @@ var (
 	Aquecedor      = make(map[string]bool)
 	MotorComedouro = make(map[string]bool)
 	ValvulaAgua    = make(map[string]bool)
-
-	// ── Limites de ativacao automatica (configuráveis pelo dashboard) ──────────
 
 	// Estufa — Bomba de irrigacao
 	// Liga quando umidade < Min, desliga quando > Max
@@ -56,19 +53,18 @@ var (
 	AlvoAguaMinima = map[string]float64{"Galinheiro_A": 15.0, "Galinheiro_B": 15.0}
 	AlvoAguaMaxima = map[string]float64{"Galinheiro_A": 80.0, "Galinheiro_B": 80.0}
 
-	// ── Limites criticos — geram alertas visuais no dashboard ─────────────────
-	// Representam situacoes piores que o limite de ativacao automatica.
+	// Limites criticos para alerta visual.
 	// A logica automatica continua agindo normalmente, mas o alerta notifica
 	// o operador de que algo anormal ocorreu (falha de equipamento, evento fisico).
 
 	// Estufa
-	LimiteCriticoUmidade    = map[string]float64{"Estufa_A": 5.0,  "Estufa_B": 5.0}
-	LimiteCriticoTempEstufa = map[string]float64{"Estufa_A": 45.0, "Estufa_B": 45.0}
+	LimiteCriticoUmidade      = map[string]float64{"Estufa_A": 5.0, "Estufa_B": 5.0}
+	LimiteCriticoTempEstufa   = map[string]float64{"Estufa_A": 45.0, "Estufa_B": 45.0}
 	LimiteCriticoLuminosidade = map[string]float64{"Estufa_A": 100.0, "Estufa_B": 100.0}
 
 	// Galinheiro
-	LimiteCriticoAmonia        = map[string]float64{"Galinheiro_A": 35.0, "Galinheiro_B": 35.0}
-	LimiteCriticoRacao         = map[string]float64{"Galinheiro_A": 5.0,  "Galinheiro_B": 5.0}
-	LimiteCriticoAgua          = map[string]float64{"Galinheiro_A": 5.0,  "Galinheiro_B": 5.0}
+	LimiteCriticoAmonia         = map[string]float64{"Galinheiro_A": 35.0, "Galinheiro_B": 35.0}
+	LimiteCriticoRacao          = map[string]float64{"Galinheiro_A": 5.0, "Galinheiro_B": 5.0}
+	LimiteCriticoAgua           = map[string]float64{"Galinheiro_A": 5.0, "Galinheiro_B": 5.0}
 	LimiteCriticoTempGalinheiro = map[string]float64{"Galinheiro_A": 15.0, "Galinheiro_B": 15.0}
 )

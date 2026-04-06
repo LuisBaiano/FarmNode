@@ -356,9 +356,7 @@ tr:hover td{background:#fafafa}
 </div>
 
 <script>
-// ════════════════════════════════════════════════════════
 // WebSocket
-// ════════════════════════════════════════════════════════
 let ws = null, wsConectando = false;
 let sensorSel = { node:'Estufa_A', tipo:'umidade', unidade:'%' };
 let sensorChart = null;
@@ -392,9 +390,7 @@ function wsSend(o) {
   if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(o));
 }
 
-// ════════════════════════════════════════════════════════
 // Navegacao
-// ════════════════════════════════════════════════════════
 function aba(nome) {
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('ativo'));
   document.querySelectorAll('nav button').forEach(b => b.classList.remove('ativo'));
@@ -403,9 +399,7 @@ function aba(nome) {
   if (nome === 'config') carregarConfig();
 }
 
-// ════════════════════════════════════════════════════════
-// Estado dos sensores e atuadores
-// ════════════════════════════════════════════════════════
+// Atualiza estado de sensores e atuadores.
 function receberEstado(d) {
   if (!d) return;
 
@@ -451,9 +445,7 @@ function setBadge(id, on) {
   el.className = 'st ' + (on ? 'st-on' : 'st-off');
 }
 
-// ════════════════════════════════════════════════════════
-// Alertas — separados em criticos e avisos
-// ════════════════════════════════════════════════════════
+// Alertas separados em criticos e avisos.
 function receberAlertas(dados) {
   if (!Array.isArray(dados)) return;
   todosAlertas = dados;
@@ -493,9 +485,7 @@ function ackAlerta(id) {
   wsSend({ tipo:'ack_alerta', id });
 }
 
-// ════════════════════════════════════════════════════════
 // Grafico
-// ════════════════════════════════════════════════════════
 const cores = {
   umidade:'#3498db', temperatura:'#e74c3c', luminosidade:'#f39c12',
   amonia:'#9b59b6', racao:'#e67e22', agua:'#1abc9c'
@@ -555,9 +545,7 @@ async function trocarSensor() {
   } catch(e) {}
 }
 
-// ════════════════════════════════════════════════════════
-// Historico de ativacoes (carrega ao abrir pagina e a cada 30s)
-// ════════════════════════════════════════════════════════
+// Historico de ativacoes (inicial e a cada 30s).
 const nomeAtu = {
   'bomba_irrigacao_01':'Bomba Irrigacao','ventilador_01':'Ventilador',
   'painel_led_01':'Painel LED','exaustor_teto_01':'Exaustor',
@@ -585,16 +573,12 @@ async function carregarHistAtu() {
   } catch(e) { c.innerHTML = '<p class="sem-dados">Erro.</p>'; }
 }
 
-// ════════════════════════════════════════════════════════
-// Comandos de atuadores
-// ════════════════════════════════════════════════════════
+// Comandos de atuadores.
 function cmd(nodeID, atuadorID, comando) {
   wsSend({ tipo:'comando', node_id:nodeID, atuador_id:atuadorID, comando });
 }
 
-// ════════════════════════════════════════════════════════
-// Configuracoes
-// ════════════════════════════════════════════════════════
+// Configuracoes.
 async function carregarConfig() {
   try {
     const r = await fetch('/api/config');
@@ -646,19 +630,17 @@ function salvarConfig(nodeID) {
   alert('Configuracoes enviadas!');
 }
 
-// ════════════════════════════════════════════════════════
-// Inicializacao
-// ════════════════════════════════════════════════════════
+// Inicializacao da pagina.
 criarGrafico();
 trocarSensor();
 carregarHistAtu();
 
-// Carrega alertas iniciais via HTTP
+// Carrega alertas iniciais via HTTP.
 fetch('/api/alertas').then(r => r.json()).then(d => {
   if (Array.isArray(d)) { todosAlertas = d; renderAlertas(); }
 }).catch(() => {});
 
-// Recarrega historico a cada 30s
+// Recarrega historico a cada 30s.
 setInterval(carregarHistAtu, 30000);
 
 conectarWS();

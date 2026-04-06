@@ -21,9 +21,7 @@ import (
 	"FarmNode/internal/storage"
 )
 
-// ════════════════════════════════════════════════════════════════════════════
-// WebSocket nativo — RFC 6455 (sem dependencias externas)
-// ════════════════════════════════════════════════════════════════════════════
+// WebSocket nativo (RFC 6455), sem bibliotecas externas.
 
 const wsGUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 const (
@@ -116,12 +114,9 @@ func wsEnviarTexto(conn net.Conn, mu *sync.Mutex, data []byte) error {
 	return err
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-// Hub WebSocket — multiplos clientes (browsers) simultaneos
-//
-// O "cliente" do sistema e a PESSOA que visualiza o dashboard.
-// Podem existir varios browsers conectados ao mesmo servidor simultaneamente.
-// ════════════════════════════════════════════════════════════════════════════
+// Hub WebSocket para varios browsers ao mesmo tempo.
+// Cada conexao representa um browser no dashboard.
+// Suporta varios clientes ao mesmo tempo.
 
 type clienteWS struct {
 	conn    net.Conn
@@ -159,12 +154,16 @@ func (h *Hub) total() int {
 
 func (h *Hub) broadcast(tipo string, dados interface{}) {
 	payload, err := json.Marshal(dados)
-	if err != nil { return }
+	if err != nil {
+		return
+	}
 	msg, err := json.Marshal(map[string]interface{}{
 		"tipo":  tipo,
 		"dados": json.RawMessage(payload),
 	})
-	if err != nil { return }
+	if err != nil {
+		return
+	}
 	h.mu.RLock()
 	for c := range h.clientes {
 		c := c
@@ -173,20 +172,33 @@ func (h *Hub) broadcast(tipo string, dados interface{}) {
 	h.mu.RUnlock()
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-// Monitoramento de falha de sensores UDP
-//
+// Monitores em background.
 // UDP nao tem conexao — o servidor detecta falhas rastreando quando foi
 // recebido o ultimo datagrama de cada sensor.
 // Se um sensor nao enviar dados por mais de SensorTimeoutMs, gera alerta.
-// ════════════════════════════════════════════════════════════════════════════
 
 const SensorTimeoutMs = 5000 // 5 segundos sem dados = sensor perdido
+const AtuadorCheckInterval = 3 * time.Second
 
 var (
 	ultimaLeituraMu sync.Mutex
 	ultimaLeitura   = make(map[string]time.Time) // "nodeID|tipo" -> ultimo recebimento
 )
+
+type atuadorEsperado struct {
+	nodeID    string
+	atuadorID string
+}
+
+var atuadoresEsperados = []atuadorEsperado{
+	{"Estufa_A", "bomba_irrigacao_01"},
+	{"Estufa_A", "ventilador_01"},
+	{"Estufa_A", "painel_led_01"},
+	{"Galinheiro_A", "exaustor_teto_01"},
+	{"Galinheiro_A", "aquecedor_01"},
+	{"Galinheiro_A", "motor_comedouro_01"},
+	{"Galinheiro_A", "valvula_agua_01"},
+}
 
 func registrarAtividadeSensor(nodeID, tipo string) {
 	ultimaLeituraMu.Lock()
@@ -194,10 +206,10 @@ func registrarAtividadeSensor(nodeID, tipo string) {
 	ultimaLeituraMu.Unlock()
 }
 
-// monitorarSensores verifica periodicamente se algum sensor parou de enviar.
-// Roda em goroutine separada.
+// Verifica periodicamente se algum sensor parou de enviar.
+
 func monitorarSensores() {
-	// Sensores esperados
+	// Sensores que devem enviar dados.
 	sensoresEsperados := []struct{ node, tipo string }{
 		{"Estufa_A", "umidade"},
 		{"Estufa_A", "temperatura"},
@@ -208,7 +220,7 @@ func monitorarSensores() {
 		{"Galinheiro_A", "agua"},
 	}
 
-	// Aguarda 10s antes de comecar a monitorar (tempo para sensores iniciarem)
+	// Espera inicial para os sensores subirem.
 	time.Sleep(10 * time.Second)
 
 	ticker := time.NewTicker(2 * time.Second)
@@ -221,7 +233,7 @@ func monitorarSensores() {
 			chave := s.node + "|" + s.tipo
 			ultima, visto := ultimaLeitura[chave]
 			if !visto {
-				// Nunca recebeu dados deste sensor
+				// Ainda nao recebeu leitura desse sensor.
 				logger.Integrador.Printf("[MONITOR] Sensor %s/%s: nenhum dado recebido ainda", s.node, s.tipo)
 				continue
 			}
@@ -239,9 +251,41 @@ func monitorarSensores() {
 	}
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-// Throttle de alertas
-// ════════════════════════════════════════════════════════════════════════════
+// monitorarAtuadores verifica quais atuadores esperados estao online no TCP.
+// Emite log e alerta apenas em transicao de estado (online <-> offline).
+func monitorarAtuadores() {
+	estadoAnterior := make(map[string]bool)
+
+	for _, a := range atuadoresEsperados {
+		estadoAnterior[a.atuadorID] = network.AtuadorConectado(a.atuadorID)
+		if !estadoAnterior[a.atuadorID] {
+			logger.Integrador.Printf("[MONITOR] Atuador %s/%s ainda nao conectado", a.nodeID, a.atuadorID)
+		}
+	}
+
+	ticker := time.NewTicker(AtuadorCheckInterval)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		for _, a := range atuadoresEsperados {
+			atual := network.AtuadorConectado(a.atuadorID)
+			anterior := estadoAnterior[a.atuadorID]
+			if atual == anterior {
+				continue
+			}
+			estadoAnterior[a.atuadorID] = atual
+			if atual {
+				logger.Integrador.Printf("[MONITOR] Atuador %s/%s reconectado", a.nodeID, a.atuadorID)
+				continue
+			}
+			msg := fmt.Sprintf("Atuador %s/%s desconectado ou indisponivel no TCP:6000", a.nodeID, a.atuadorID)
+			logger.Integrador.Printf("[MONITOR] FALHA: %s", msg)
+			gerarAlerta(a.nodeID, a.atuadorID, 0, msg, "critico")
+		}
+	}
+}
+
+// Controle de repeticao de alertas.
 
 var (
 	ultimoAlerta   = make(map[string]time.Time)
@@ -250,10 +294,12 @@ var (
 
 func gerarAlerta(nodeID, tipo string, valor float64, mensagem, nivel string) {
 	ultimoAlertaMu.Lock()
-	key   := nodeID + "|" + tipo + "|" + nivel
+	key := nodeID + "|" + tipo + "|" + nivel
 	ultima := ultimoAlerta[key]
 	ultimoAlertaMu.Unlock()
-	if time.Since(ultima) < 20*time.Second { return }
+	if time.Since(ultima) < 20*time.Second {
+		return
+	}
 	ultimoAlertaMu.Lock()
 	ultimoAlerta[key] = time.Now()
 	ultimoAlertaMu.Unlock()
@@ -264,9 +310,25 @@ func gerarAlerta(nodeID, tipo string, valor float64, mensagem, nivel string) {
 	hub.broadcast("alerta", alertas)
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-// Worker Pool UDP — suporta ~7000 msg/s sem spawn ilimitado de goroutines
-// ════════════════════════════════════════════════════════════════════════════
+// acionarAtuador so envia comando se o atuador estiver online.
+// Retorna true apenas quando o envio realmente ocorreu.
+func acionarAtuador(nodeID, atuadorID, comando, motivo string) bool {
+	if !network.AtuadorConectado(atuadorID) {
+		msg := fmt.Sprintf("Atuador %s/%s indisponivel: comando '%s' nao enviado", nodeID, atuadorID, comando)
+		logger.Integrador.Printf("[AUTO] %s", msg)
+		gerarAlerta(nodeID, atuadorID, 0, msg, "critico")
+		return false
+	}
+	if ok := network.EnviarComandoTCP(nodeID, atuadorID, comando, motivo); !ok {
+		msg := fmt.Sprintf("Atuador %s/%s desconectou durante envio: comando '%s' falhou", nodeID, atuadorID, comando)
+		logger.Integrador.Printf("[AUTO] %s", msg)
+		gerarAlerta(nodeID, atuadorID, 0, msg, "critico")
+		return false
+	}
+	return true
+}
+
+// Worker pool para processar datagramas UDP em paralelo.
 
 const (
 	NumWorkers   = 64
@@ -290,9 +352,7 @@ func iniciarWorkers() {
 	}
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-// Main
-// ════════════════════════════════════════════════════════════════════════════
+// Inicializacao do servidor.
 
 func main() {
 	if err := storage.InitDB("farmnode_logs.db"); err != nil {
@@ -302,19 +362,24 @@ func main() {
 
 	iniciarWorkers()
 
-	// Listener TCP :6000 — atuadores conectam aqui (porta unica para todos)
+	// Atuadores conectam em TCP :6000.
 	go network.EscutarAtuadoresTCP("0.0.0.0:6000")
 
-	// Monitoramento de falha de sensores UDP
+	// Monitores em background.
 	go monitorarSensores()
+	go monitorarAtuadores()
 
 	go startDashboard()
 
-	// Listener UDP :8080 — sensores enviam datagramas aqui
+	// Sensores enviam UDP em :8080.
 	addr, err := net.ResolveUDPAddr("udp", "0.0.0.0:8080")
-	if err != nil { log.Fatalf("UDP addr: %v", err) }
+	if err != nil {
+		log.Fatalf("UDP addr: %v", err)
+	}
 	conn, err := net.ListenUDP("udp", addr)
-	if err != nil { log.Fatalf("UDP listen: %v", err) }
+	if err != nil {
+		log.Fatalf("UDP listen: %v", err)
+	}
 	defer conn.Close()
 
 	logger.Integrador.Println("FarmNode v3 iniciado!")
@@ -344,34 +409,24 @@ func main() {
 	}
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-// Processamento UDP — executado pelos workers
-// ════════════════════════════════════════════════════════════════════════════
+// Processamento UDP feito pelos workers.
 
-// ── Filtro de log de sensores ─────────────────────────────────────────────────
-//
-// Com sensores enviando a 1ms, gravar cada leitura geraria ~7000 logs/s.
-// Em 15 minutos seriam >6 milhões de registros — inviável.
-//
-// Critério de salvamento: salva SE qualquer uma das condições for verdadeira:
-//  1. O valor variou >= LogMinVariacao em relação ao último valor salvo
-//  2. Passaram >= LogMinIntervalo segundos desde o último salvamento
-//
-// Isso mantém o histórico legível no dashboard sem explodir o JSON.
-// O envio UDP a 1ms continua intacto — só o salvamento em disco é filtrado.
+// Filtro de log para reduzir escrita em disco.
+
+// Salva quando houver variacao ou intervalo minimo.
 
 const (
-	LogMinVariacao  = 0.5              // salva se valor mudou >= 0.5 unidades
-	LogMinIntervalo = 2 * time.Second  // salva ao menos a cada 2 segundos
+	LogMinVariacao  = 0.5             // salva se valor mudou >= 0.5 unidades
+	LogMinIntervalo = 2 * time.Second // salva ao menos a cada 2 segundos
 )
 
 var (
 	logFilterMu      sync.Mutex
 	logUltimoValor   = make(map[string]float64)   // "nodeID|tipo" -> ultimo valor salvo
-	logUltimoInstant = make(map[string]time.Time)  // "nodeID|tipo" -> ultimo instante salvo
+	logUltimoInstant = make(map[string]time.Time) // "nodeID|tipo" -> ultimo instante salvo
 )
 
-// deveLogar retorna true se esta leitura deve ser persistida em disco.
+// Indica se a leitura deve ser persistida.
 func deveLogar(nodeID, tipo string, valor float64) bool {
 	chave := nodeID + "|" + tipo
 	logFilterMu.Lock()
@@ -380,11 +435,11 @@ func deveLogar(nodeID, tipo string, valor float64) bool {
 	ultimo, temValor := logUltimoValor[chave]
 	ultimoT := logUltimoInstant[chave]
 
-	variou    := !temValor || absF(valor-ultimo) >= LogMinVariacao
-	tempoOk   := time.Since(ultimoT) >= LogMinIntervalo
+	variou := !temValor || absF(valor-ultimo) >= LogMinVariacao
+	tempoOk := time.Since(ultimoT) >= LogMinIntervalo
 
 	if variou || tempoOk {
-		logUltimoValor[chave]   = valor
+		logUltimoValor[chave] = valor
 		logUltimoInstant[chave] = time.Now()
 		return true
 	}
@@ -392,11 +447,11 @@ func deveLogar(nodeID, tipo string, valor float64) bool {
 }
 
 func absF(v float64) float64 {
-	if v < 0 { return -v }
+	if v < 0 {
+		return -v
+	}
 	return v
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
 
 func handleSensorUDP(dados []byte, origem *net.UDPAddr) {
 	var sensor models.MensagemSensor
@@ -405,10 +460,10 @@ func handleSensorUDP(dados []byte, origem *net.UDPAddr) {
 		return
 	}
 
-	// Registra atividade do sensor (para deteccao de falha)
+	// Atualiza o ultimo contato do sensor.
 	registrarAtividadeSensor(sensor.NodeID, sensor.Tipo)
 
-	// Atualiza estado em tempo real (sempre — para dashboard e regras)
+	// Atualiza estado em memoria.
 	state.Mutex.Lock()
 	if _, ok := state.ValoresSensores[sensor.NodeID]; !ok {
 		state.ValoresSensores[sensor.NodeID] = make(map[string]float64)
@@ -425,17 +480,13 @@ func handleSensorUDP(dados []byte, origem *net.UDPAddr) {
 	processarRegrasAutomaticas(sensor)
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-// Regras automaticas — TODA interpretacao ocorre aqui, no servidor
-//
-// O servidor recebe valores crus dos sensores e decide:
-//  - Acionar atuadores (ligar/desligar)
-//  - Gerar alertas de aviso ou critico
-//  - Empurrar atualizacoes para os clientes via WebSocket
-// ════════════════════════════════════════════════════════════════════════════
+// Regras automaticas de acionamento e alerta.
 
 func processarRegrasAutomaticas(sensor models.MensagemSensor) {
-	type ap struct{ nodeID, tipo, msg, nivel string; val float64 }
+	type ap struct {
+		nodeID, tipo, msg, nivel string
+		val                      float64
+	}
 	var alertas []ap
 
 	state.Mutex.Lock()
@@ -447,14 +498,16 @@ func processarRegrasAutomaticas(sensor models.MensagemSensor) {
 			on := state.BombaIrrigacao[sensor.NodeID]
 			if sensor.Valor < min && !on {
 				logger.Integrador.Printf("[AUTO] %s: Umidade %.2f%% < %.1f%% -> LIGAR BOMBA", sensor.NodeID, sensor.Valor, min)
-				network.EnviarComandoTCP(sensor.NodeID, "bomba_irrigacao_01", "LIGAR", "umidade_baixa")
-				state.BombaIrrigacao[sensor.NodeID] = true
-				storage.LogAtuador(sensor.NodeID, "bomba_irrigacao_01", "LIGAR", "umidade_baixa")
+				if acionarAtuador(sensor.NodeID, "bomba_irrigacao_01", "LIGAR", "umidade_baixa") {
+					state.BombaIrrigacao[sensor.NodeID] = true
+					storage.LogAtuador(sensor.NodeID, "bomba_irrigacao_01", "LIGAR", "umidade_baixa")
+				}
 			} else if sensor.Valor > max && on {
 				logger.Integrador.Printf("[AUTO] %s: Umidade %.2f%% > %.1f%% -> DESLIGAR BOMBA", sensor.NodeID, sensor.Valor, max)
-				network.EnviarComandoTCP(sensor.NodeID, "bomba_irrigacao_01", "DESLIGAR", "umidade_ideal")
-				state.BombaIrrigacao[sensor.NodeID] = false
-				storage.LogAtuador(sensor.NodeID, "bomba_irrigacao_01", "DESLIGAR", "umidade_ideal")
+				if acionarAtuador(sensor.NodeID, "bomba_irrigacao_01", "DESLIGAR", "umidade_ideal") {
+					state.BombaIrrigacao[sensor.NodeID] = false
+					storage.LogAtuador(sensor.NodeID, "bomba_irrigacao_01", "DESLIGAR", "umidade_ideal")
+				}
 			}
 			if sensor.Valor < crit {
 				alertas = append(alertas, ap{sensor.NodeID, "umidade",
@@ -466,14 +519,16 @@ func processarRegrasAutomaticas(sensor models.MensagemSensor) {
 			on := state.Ventilador[sensor.NodeID]
 			if sensor.Valor > max && !on {
 				logger.Integrador.Printf("[AUTO] %s: Temp %.2fC > %.1fC -> LIGAR VENTILADOR", sensor.NodeID, sensor.Valor, max)
-				network.EnviarComandoTCP(sensor.NodeID, "ventilador_01", "LIGAR", "temp_alta")
-				state.Ventilador[sensor.NodeID] = true
-				storage.LogAtuador(sensor.NodeID, "ventilador_01", "LIGAR", "temp_alta")
+				if acionarAtuador(sensor.NodeID, "ventilador_01", "LIGAR", "temp_alta") {
+					state.Ventilador[sensor.NodeID] = true
+					storage.LogAtuador(sensor.NodeID, "ventilador_01", "LIGAR", "temp_alta")
+				}
 			} else if sensor.Valor < max-5.0 && on {
 				logger.Integrador.Printf("[AUTO] %s: Temp %.2fC normalizada -> DESLIGAR VENTILADOR", sensor.NodeID, sensor.Valor)
-				network.EnviarComandoTCP(sensor.NodeID, "ventilador_01", "DESLIGAR", "temp_normal")
-				state.Ventilador[sensor.NodeID] = false
-				storage.LogAtuador(sensor.NodeID, "ventilador_01", "DESLIGAR", "temp_normal")
+				if acionarAtuador(sensor.NodeID, "ventilador_01", "DESLIGAR", "temp_normal") {
+					state.Ventilador[sensor.NodeID] = false
+					storage.LogAtuador(sensor.NodeID, "ventilador_01", "DESLIGAR", "temp_normal")
+				}
 			}
 			if sensor.Valor > crit {
 				alertas = append(alertas, ap{sensor.NodeID, "temperatura",
@@ -485,14 +540,16 @@ func processarRegrasAutomaticas(sensor models.MensagemSensor) {
 			on := state.LuzArtifical[sensor.NodeID]
 			if sensor.Valor < min && !on {
 				logger.Integrador.Printf("[AUTO] %s: Luz %.2f Lux < %.1f -> LIGAR LED", sensor.NodeID, sensor.Valor, min)
-				network.EnviarComandoTCP(sensor.NodeID, "painel_led_01", "LIGAR", "luz_baixa")
-				state.LuzArtifical[sensor.NodeID] = true
-				storage.LogAtuador(sensor.NodeID, "painel_led_01", "LIGAR", "luz_baixa")
+				if acionarAtuador(sensor.NodeID, "painel_led_01", "LIGAR", "luz_baixa") {
+					state.LuzArtifical[sensor.NodeID] = true
+					storage.LogAtuador(sensor.NodeID, "painel_led_01", "LIGAR", "luz_baixa")
+				}
 			} else if sensor.Valor > min*2 && on {
 				logger.Integrador.Printf("[AUTO] %s: Luz %.2f Lux normalizada -> DESLIGAR LED", sensor.NodeID, sensor.Valor)
-				network.EnviarComandoTCP(sensor.NodeID, "painel_led_01", "DESLIGAR", "luz_ok")
-				state.LuzArtifical[sensor.NodeID] = false
-				storage.LogAtuador(sensor.NodeID, "painel_led_01", "DESLIGAR", "luz_ok")
+				if acionarAtuador(sensor.NodeID, "painel_led_01", "DESLIGAR", "luz_ok") {
+					state.LuzArtifical[sensor.NodeID] = false
+					storage.LogAtuador(sensor.NodeID, "painel_led_01", "DESLIGAR", "luz_ok")
+				}
 			}
 			if sensor.Valor < crit {
 				alertas = append(alertas, ap{sensor.NodeID, "luminosidade",
@@ -508,16 +565,18 @@ func processarRegrasAutomaticas(sensor models.MensagemSensor) {
 			on := state.Exaustor[sensor.NodeID]
 			if sensor.Valor >= max && !on {
 				logger.Integrador.Printf("[AUTO] %s: Amonia %.2f ppm >= %.1f -> LIGAR EXAUSTOR", sensor.NodeID, sensor.Valor, max)
-				network.EnviarComandoTCP(sensor.NodeID, "exaustor_teto_01", "LIGAR", "amonia_elevada")
-				state.Exaustor[sensor.NodeID] = true
-				storage.LogAtuador(sensor.NodeID, "exaustor_teto_01", "LIGAR", "amonia_elevada")
-				alertas = append(alertas, ap{sensor.NodeID, "amonia",
-					fmt.Sprintf("Amonia elevada: %.2f ppm — Exaustor acionado automaticamente", sensor.Valor), "aviso", sensor.Valor})
+				if acionarAtuador(sensor.NodeID, "exaustor_teto_01", "LIGAR", "amonia_elevada") {
+					state.Exaustor[sensor.NodeID] = true
+					storage.LogAtuador(sensor.NodeID, "exaustor_teto_01", "LIGAR", "amonia_elevada")
+					alertas = append(alertas, ap{sensor.NodeID, "amonia",
+						fmt.Sprintf("Amonia elevada: %.2f ppm — Exaustor acionado automaticamente", sensor.Valor), "aviso", sensor.Valor})
+				}
 			} else if sensor.Valor < max-10.0 && on {
 				logger.Integrador.Printf("[AUTO] %s: Amonia %.2f ppm normalizada -> DESLIGAR EXAUSTOR", sensor.NodeID, sensor.Valor)
-				network.EnviarComandoTCP(sensor.NodeID, "exaustor_teto_01", "DESLIGAR", "amonia_normal")
-				state.Exaustor[sensor.NodeID] = false
-				storage.LogAtuador(sensor.NodeID, "exaustor_teto_01", "DESLIGAR", "amonia_normal")
+				if acionarAtuador(sensor.NodeID, "exaustor_teto_01", "DESLIGAR", "amonia_normal") {
+					state.Exaustor[sensor.NodeID] = false
+					storage.LogAtuador(sensor.NodeID, "exaustor_teto_01", "DESLIGAR", "amonia_normal")
+				}
 			}
 			if sensor.Valor >= crit {
 				alertas = append(alertas, ap{sensor.NodeID, "amonia",
@@ -529,14 +588,16 @@ func processarRegrasAutomaticas(sensor models.MensagemSensor) {
 			on := state.Aquecedor[sensor.NodeID]
 			if sensor.Valor < min && !on {
 				logger.Integrador.Printf("[AUTO] %s: Temp %.2fC < %.1fC -> LIGAR AQUECEDOR", sensor.NodeID, sensor.Valor, min)
-				network.EnviarComandoTCP(sensor.NodeID, "aquecedor_01", "LIGAR", "temp_baixa")
-				state.Aquecedor[sensor.NodeID] = true
-				storage.LogAtuador(sensor.NodeID, "aquecedor_01", "LIGAR", "temp_baixa")
+				if acionarAtuador(sensor.NodeID, "aquecedor_01", "LIGAR", "temp_baixa") {
+					state.Aquecedor[sensor.NodeID] = true
+					storage.LogAtuador(sensor.NodeID, "aquecedor_01", "LIGAR", "temp_baixa")
+				}
 			} else if sensor.Valor > min+5.0 && on {
 				logger.Integrador.Printf("[AUTO] %s: Temp %.2fC normalizada -> DESLIGAR AQUECEDOR", sensor.NodeID, sensor.Valor)
-				network.EnviarComandoTCP(sensor.NodeID, "aquecedor_01", "DESLIGAR", "temp_normal")
-				state.Aquecedor[sensor.NodeID] = false
-				storage.LogAtuador(sensor.NodeID, "aquecedor_01", "DESLIGAR", "temp_normal")
+				if acionarAtuador(sensor.NodeID, "aquecedor_01", "DESLIGAR", "temp_normal") {
+					state.Aquecedor[sensor.NodeID] = false
+					storage.LogAtuador(sensor.NodeID, "aquecedor_01", "DESLIGAR", "temp_normal")
+				}
 			}
 			if sensor.Valor < crit {
 				alertas = append(alertas, ap{sensor.NodeID, "temperatura",
@@ -548,14 +609,16 @@ func processarRegrasAutomaticas(sensor models.MensagemSensor) {
 			on := state.MotorComedouro[sensor.NodeID]
 			if sensor.Valor < min && !on {
 				logger.Integrador.Printf("[AUTO] %s: Racao %.2f%% < %.1f%% -> LIGAR MOTOR", sensor.NodeID, sensor.Valor, min)
-				network.EnviarComandoTCP(sensor.NodeID, "motor_comedouro_01", "LIGAR", "racao_baixa")
-				state.MotorComedouro[sensor.NodeID] = true
-				storage.LogAtuador(sensor.NodeID, "motor_comedouro_01", "LIGAR", "racao_baixa")
+				if acionarAtuador(sensor.NodeID, "motor_comedouro_01", "LIGAR", "racao_baixa") {
+					state.MotorComedouro[sensor.NodeID] = true
+					storage.LogAtuador(sensor.NodeID, "motor_comedouro_01", "LIGAR", "racao_baixa")
+				}
 			} else if sensor.Valor >= max && on {
 				logger.Integrador.Printf("[AUTO] %s: Racao %.2f%% >= %.1f%% -> DESLIGAR MOTOR", sensor.NodeID, sensor.Valor, max)
-				network.EnviarComandoTCP(sensor.NodeID, "motor_comedouro_01", "DESLIGAR", "racao_cheia")
-				state.MotorComedouro[sensor.NodeID] = false
-				storage.LogAtuador(sensor.NodeID, "motor_comedouro_01", "DESLIGAR", "racao_cheia")
+				if acionarAtuador(sensor.NodeID, "motor_comedouro_01", "DESLIGAR", "racao_cheia") {
+					state.MotorComedouro[sensor.NodeID] = false
+					storage.LogAtuador(sensor.NodeID, "motor_comedouro_01", "DESLIGAR", "racao_cheia")
+				}
 			}
 			if sensor.Valor < crit {
 				alertas = append(alertas, ap{sensor.NodeID, "racao",
@@ -567,14 +630,16 @@ func processarRegrasAutomaticas(sensor models.MensagemSensor) {
 			on := state.ValvulaAgua[sensor.NodeID]
 			if sensor.Valor < min && !on {
 				logger.Integrador.Printf("[AUTO] %s: Agua %.2f%% < %.1f%% -> LIGAR VALVULA", sensor.NodeID, sensor.Valor, min)
-				network.EnviarComandoTCP(sensor.NodeID, "valvula_agua_01", "LIGAR", "agua_baixa")
-				state.ValvulaAgua[sensor.NodeID] = true
-				storage.LogAtuador(sensor.NodeID, "valvula_agua_01", "LIGAR", "agua_baixa")
+				if acionarAtuador(sensor.NodeID, "valvula_agua_01", "LIGAR", "agua_baixa") {
+					state.ValvulaAgua[sensor.NodeID] = true
+					storage.LogAtuador(sensor.NodeID, "valvula_agua_01", "LIGAR", "agua_baixa")
+				}
 			} else if sensor.Valor >= max && on {
 				logger.Integrador.Printf("[AUTO] %s: Agua %.2f%% >= %.1f%% -> DESLIGAR VALVULA", sensor.NodeID, sensor.Valor, max)
-				network.EnviarComandoTCP(sensor.NodeID, "valvula_agua_01", "DESLIGAR", "agua_cheia")
-				state.ValvulaAgua[sensor.NodeID] = false
-				storage.LogAtuador(sensor.NodeID, "valvula_agua_01", "DESLIGAR", "agua_cheia")
+				if acionarAtuador(sensor.NodeID, "valvula_agua_01", "DESLIGAR", "agua_cheia") {
+					state.ValvulaAgua[sensor.NodeID] = false
+					storage.LogAtuador(sensor.NodeID, "valvula_agua_01", "DESLIGAR", "agua_cheia")
+				}
 			}
 			if sensor.Valor < crit {
 				alertas = append(alertas, ap{sensor.NodeID, "agua",
@@ -590,21 +655,19 @@ func processarRegrasAutomaticas(sensor models.MensagemSensor) {
 	}
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-// Dashboard HTTP + WebSocket
-// ════════════════════════════════════════════════════════════════════════════
+// Rotas HTTP e WebSocket do dashboard.
 
 func startDashboard() {
 	http.HandleFunc("/dashboard", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		fmt.Fprint(w, getDashboardHTML())
 	})
-	http.HandleFunc("/ws",                  handleWebSocket)
-	http.HandleFunc("/api/estado",          handleAPIEstado)   // usado pelos sensores
-	http.HandleFunc("/api/sensor/",         handleAPISensorData)
+	http.HandleFunc("/ws", handleWebSocket)
+	http.HandleFunc("/api/estado", handleAPIEstado) // usado pelos sensores
+	http.HandleFunc("/api/sensor/", handleAPISensorData)
 	http.HandleFunc("/api/atuador/history", handleAPIAtuadorHistory)
-	http.HandleFunc("/api/alertas",         handleAPIAlertas)
-	http.HandleFunc("/api/config",          handleAPIConfigGET)
+	http.HandleFunc("/api/alertas", handleAPIAlertas)
+	http.HandleFunc("/api/config", handleAPIConfigGET)
 
 	logger.Integrador.Println("Dashboard: http://0.0.0.0:8082/dashboard")
 	if err := http.ListenAndServe(":8082", nil); err != nil {
@@ -631,7 +694,7 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 			select {
 			case <-ticker.C:
 				estado := construirEstado()
-				p, _  := json.Marshal(estado)
+				p, _ := json.Marshal(estado)
 				msg, _ := json.Marshal(map[string]interface{}{"tipo": "estado", "dados": json.RawMessage(p)})
 				if err := wsEnviarTexto(conn, &c.writeMu, msg); err != nil {
 					return
@@ -645,7 +708,9 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request) {
 	reader := rw.Reader
 	for {
 		payload, op, err := wsLerFrame(reader)
-		if err != nil { break }
+		if err != nil {
+			break
+		}
 		switch op {
 		case wsOpText:
 			processarMensagemCliente(payload)
@@ -671,40 +736,59 @@ func processarMensagemCliente(raw []byte) {
 		ID        string          `json:"id"`
 		Dados     json.RawMessage `json:"dados"`
 	}
-	if err := json.Unmarshal(raw, &msg); err != nil { return }
+	if err := json.Unmarshal(raw, &msg); err != nil {
+		return
+	}
 
 	switch msg.Tipo {
 	case "comando":
-		if msg.NodeID == "" || msg.AtuadorID == "" || msg.Comando == "" { return }
+		if msg.NodeID == "" || msg.AtuadorID == "" || msg.Comando == "" {
+			return
+		}
 		estado := msg.Comando == "LIGAR"
+		if !acionarAtuador(msg.NodeID, msg.AtuadorID, msg.Comando, "manual_dashboard") {
+			return
+		}
 		state.Mutex.Lock()
 		switch msg.AtuadorID {
-		case "bomba_irrigacao_01":  state.BombaIrrigacao[msg.NodeID] = estado
-		case "ventilador_01":       state.Ventilador[msg.NodeID] = estado
-		case "painel_led_01":       state.LuzArtifical[msg.NodeID] = estado
-		case "exaustor_teto_01":    state.Exaustor[msg.NodeID] = estado
-		case "aquecedor_01":        state.Aquecedor[msg.NodeID] = estado
-		case "motor_comedouro_01":  state.MotorComedouro[msg.NodeID] = estado
-		case "valvula_agua_01":     state.ValvulaAgua[msg.NodeID] = estado
+		case "bomba_irrigacao_01":
+			state.BombaIrrigacao[msg.NodeID] = estado
+		case "ventilador_01":
+			state.Ventilador[msg.NodeID] = estado
+		case "painel_led_01":
+			state.LuzArtifical[msg.NodeID] = estado
+		case "exaustor_teto_01":
+			state.Exaustor[msg.NodeID] = estado
+		case "aquecedor_01":
+			state.Aquecedor[msg.NodeID] = estado
+		case "motor_comedouro_01":
+			state.MotorComedouro[msg.NodeID] = estado
+		case "valvula_agua_01":
+			state.ValvulaAgua[msg.NodeID] = estado
 		default:
 			state.Mutex.Unlock()
 			return
 		}
 		state.Mutex.Unlock()
-		network.EnviarComandoTCP(msg.NodeID, msg.AtuadorID, msg.Comando, "manual_dashboard")
 		storage.LogAtuador(msg.NodeID, msg.AtuadorID, msg.Comando, "manual_dashboard")
 		logger.Integrador.Printf("[WS] Comando dashboard: %s/%s -> %s", msg.NodeID, msg.AtuadorID, msg.Comando)
 
 	case "ack_alerta":
-		if msg.ID == "" { return }
+		if msg.ID == "" {
+			return
+		}
 		storage.AckAlerta(msg.ID)
 		alertas, _ := storage.GetAlertas(false)
 		hub.broadcast("alerta", alertas)
 
 	case "config":
-		if msg.NodeID == "" || msg.Dados == nil { return }
+		if msg.NodeID == "" || msg.Dados == nil {
+			return
+		}
 		var campos map[string]float64
-		if err := json.Unmarshal(msg.Dados, &campos); err != nil { return }
+		if err := json.Unmarshal(msg.Dados, &campos); err != nil {
+			return
+		}
 		aplicarConfig(msg.NodeID, campos)
 	}
 }
@@ -738,29 +822,46 @@ func aplicarConfig(nodeID string, campos map[string]float64) {
 	defer state.Mutex.Unlock()
 	for k, v := range campos {
 		switch nodeID + "|" + k {
-		case "Estufa_A|umidade_min":       state.AlvoUmidadeMinima[nodeID] = v
-		case "Estufa_A|umidade_max":       state.AlvoUmidadeMaxima[nodeID] = v
-		case "Estufa_A|temp_max":          state.AlvoTempMaxima[nodeID] = v
-		case "Estufa_A|luz_min":           state.AlvoLuzMinima[nodeID] = v
-		case "Estufa_A|critico_umidade":   state.LimiteCriticoUmidade[nodeID] = v
-		case "Estufa_A|critico_temp":      state.LimiteCriticoTempEstufa[nodeID] = v
-		case "Estufa_A|critico_luz":       state.LimiteCriticoLuminosidade[nodeID] = v
-		case "Galinheiro_A|racao_min":     state.AlvoRacaoMinima[nodeID] = v
-		case "Galinheiro_A|racao_max":     state.AlvoRacaoMaxima[nodeID] = v
-		case "Galinheiro_A|amonia_max":    state.AlvoAmoniaMaxima[nodeID] = v
-		case "Galinheiro_A|agua_min":      state.AlvoAguaMinima[nodeID] = v
-		case "Galinheiro_A|agua_max":      state.AlvoAguaMaxima[nodeID] = v
-		case "Galinheiro_A|temp_min":      state.AlvoTempMinima[nodeID] = v
-		case "Galinheiro_A|critico_racao": state.LimiteCriticoRacao[nodeID] = v
-		case "Galinheiro_A|critico_amonia":state.LimiteCriticoAmonia[nodeID] = v
-		case "Galinheiro_A|critico_agua":  state.LimiteCriticoAgua[nodeID] = v
-		case "Galinheiro_A|critico_temp":  state.LimiteCriticoTempGalinheiro[nodeID] = v
+		case "Estufa_A|umidade_min":
+			state.AlvoUmidadeMinima[nodeID] = v
+		case "Estufa_A|umidade_max":
+			state.AlvoUmidadeMaxima[nodeID] = v
+		case "Estufa_A|temp_max":
+			state.AlvoTempMaxima[nodeID] = v
+		case "Estufa_A|luz_min":
+			state.AlvoLuzMinima[nodeID] = v
+		case "Estufa_A|critico_umidade":
+			state.LimiteCriticoUmidade[nodeID] = v
+		case "Estufa_A|critico_temp":
+			state.LimiteCriticoTempEstufa[nodeID] = v
+		case "Estufa_A|critico_luz":
+			state.LimiteCriticoLuminosidade[nodeID] = v
+		case "Galinheiro_A|racao_min":
+			state.AlvoRacaoMinima[nodeID] = v
+		case "Galinheiro_A|racao_max":
+			state.AlvoRacaoMaxima[nodeID] = v
+		case "Galinheiro_A|amonia_max":
+			state.AlvoAmoniaMaxima[nodeID] = v
+		case "Galinheiro_A|agua_min":
+			state.AlvoAguaMinima[nodeID] = v
+		case "Galinheiro_A|agua_max":
+			state.AlvoAguaMaxima[nodeID] = v
+		case "Galinheiro_A|temp_min":
+			state.AlvoTempMinima[nodeID] = v
+		case "Galinheiro_A|critico_racao":
+			state.LimiteCriticoRacao[nodeID] = v
+		case "Galinheiro_A|critico_amonia":
+			state.LimiteCriticoAmonia[nodeID] = v
+		case "Galinheiro_A|critico_agua":
+			state.LimiteCriticoAgua[nodeID] = v
+		case "Galinheiro_A|critico_temp":
+			state.LimiteCriticoTempGalinheiro[nodeID] = v
 		}
 	}
 	logger.Integrador.Printf("[WS] Config atualizada: %s", nodeID)
 }
 
-// handleAPIEstado: mantido para que os sensores consultem estado dos atuadores
+// Mantido para os sensores consultarem estado dos atuadores.
 func handleAPIEstado(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
@@ -770,11 +871,17 @@ func handleAPIEstado(w http.ResponseWriter, r *http.Request) {
 func handleAPISensorData(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	tipo := strings.TrimPrefix(r.URL.Path, "/api/sensor/")
-	if tipo == "" { w.WriteHeader(http.StatusBadRequest); return }
+	if tipo == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
 	horas := 1
 	fmt.Sscanf(r.URL.Query().Get("horas"), "%d", &horas)
 	dados, err := storage.GetSensorDataByType(tipo, horas)
-	if err != nil { w.WriteHeader(http.StatusInternalServerError); return }
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
 	json.NewEncoder(w).Encode(dados)
 }
 
@@ -783,7 +890,10 @@ func handleAPIAtuadorHistory(w http.ResponseWriter, r *http.Request) {
 	horas := 24
 	fmt.Sscanf(r.URL.Query().Get("horas"), "%d", &horas)
 	dados, err := storage.GetAllAtuadorHistory(horas)
-	if err != nil { w.WriteHeader(http.StatusInternalServerError); return }
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
 	json.NewEncoder(w).Encode(dados)
 }
 
@@ -791,21 +901,26 @@ func handleAPIAlertas(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	ativos := r.URL.Query().Get("ativos") == "true"
 	alertas, _ := storage.GetAlertas(ativos)
-	if alertas == nil { alertas = []storage.AlertaLog{} }
+	if alertas == nil {
+		alertas = []storage.AlertaLog{}
+	}
 	json.NewEncoder(w).Encode(alertas)
 }
 
 func handleAPIConfigGET(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet { w.WriteHeader(http.StatusMethodNotAllowed); return }
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	state.Mutex.Lock()
 	defer state.Mutex.Unlock()
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"Estufa_A": map[string]interface{}{
-			"umidade_min": state.AlvoUmidadeMinima["Estufa_A"],
-			"umidade_max": state.AlvoUmidadeMaxima["Estufa_A"],
-			"temp_max":    state.AlvoTempMaxima["Estufa_A"],
-			"luz_min":     state.AlvoLuzMinima["Estufa_A"],
+			"umidade_min":     state.AlvoUmidadeMinima["Estufa_A"],
+			"umidade_max":     state.AlvoUmidadeMaxima["Estufa_A"],
+			"temp_max":        state.AlvoTempMaxima["Estufa_A"],
+			"luz_min":         state.AlvoLuzMinima["Estufa_A"],
 			"critico_umidade": state.LimiteCriticoUmidade["Estufa_A"],
 			"critico_temp":    state.LimiteCriticoTempEstufa["Estufa_A"],
 			"critico_luz":     state.LimiteCriticoLuminosidade["Estufa_A"],

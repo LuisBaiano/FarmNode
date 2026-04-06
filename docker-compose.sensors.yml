@@ -11,33 +11,33 @@
 services:
 
   # ─── Estufa A ──────────────────────────────────────────────────────────────
-  sensor_umidade_estufa_a:
+  sensor_umidade:
     build:
       context: .
       dockerfile: cmd/client/Dockerfile
-    container_name: sensor_umidade_estufa_a
+    container_name: sensor_umidade
     command: ["./client_exec", "-sensor", "umidade", "-node", "Estufa_A"]
     environment:
       - SERVER_IP=${SERVER_ADDR}:8080
     network_mode: host
     restart: on-failure
 
-  sensor_temperatura_estufa_a:
+  sensor_temperatura_estufa:
     build:
       context: .
       dockerfile: cmd/client/Dockerfile
-    container_name: sensor_temperatura_estufa_a
+    container_name: sensor_temperatura_estufa
     command: ["./client_exec", "-sensor", "temperatura", "-node", "Estufa_A"]
     environment:
       - SERVER_IP=${SERVER_ADDR}:8080
     network_mode: host
     restart: on-failure
 
-  sensor_luminosidade_estufa_a:
+  sensor_luminosidade:
     build:
       context: .
       dockerfile: cmd/client/Dockerfile
-    container_name: sensor_luminosidade_estufa_a
+    container_name: sensor_luminosidade
     command: ["./client_exec", "-sensor", "luminosidade", "-node", "Estufa_A"]
     environment:
       - SERVER_IP=${SERVER_ADDR}:8080
@@ -45,44 +45,44 @@ services:
     restart: on-failure
 
   # ─── Galinheiro A ──────────────────────────────────────────────────────────
-  sensor_amonia_galinheiro_a:
+  sensor_amonia:
     build:
       context: .
       dockerfile: cmd/client/Dockerfile
-    container_name: sensor_amonia_galinheiro_a
+    container_name: sensor_amonia
     command: ["./client_exec", "-sensor", "amonia", "-node", "Galinheiro_A"]
     environment:
       - SERVER_IP=${SERVER_ADDR}:8080
     network_mode: host
     restart: on-failure
 
-  sensor_temperatura_galinheiro_a:
+  sensor_temperatura_galinheiro:
     build:
       context: .
       dockerfile: cmd/client/Dockerfile
-    container_name: sensor_temperatura_galinheiro_a
+    container_name: sensor_temperatura_galinheiro
     command: ["./client_exec", "-sensor", "temperatura", "-node", "Galinheiro_A"]
     environment:
       - SERVER_IP=${SERVER_ADDR}:8080
     network_mode: host
     restart: on-failure
 
-  sensor_racao_galinheiro_a:
+  sensor_racao:
     build:
       context: .
       dockerfile: cmd/client/Dockerfile
-    container_name: sensor_racao_galinheiro_a
+    container_name: sensor_racao
     command: ["./client_exec", "-sensor", "racao", "-node", "Galinheiro_A"]
     environment:
       - SERVER_IP=${SERVER_ADDR}:8080
     network_mode: host
     restart: on-failure
 
-  sensor_agua_galinheiro_a:
+  sensor_agua:
     build:
       context: .
       dockerfile: cmd/client/Dockerfile
-    container_name: sensor_agua_galinheiro_a
+    container_name: sensor_agua
     command: ["./client_exec", "-sensor", "agua", "-node", "Galinheiro_A"]
     environment:
       - SERVER_IP=${SERVER_ADDR}:8080

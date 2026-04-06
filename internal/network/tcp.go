@@ -13,28 +13,23 @@ import (
 	"FarmNode/internal/state"
 )
 
-// ════════════════════════════════════════════════════════════════════════════
-// Lado SERVIDOR — porta 6000
-//
-// Arquitetura: atuadores CONECTAM ao servidor (nao o contrario).
-// Isso permite porta unica para todos os atuadores e elimina a necessidade
-// de expor portas individuais nos containers de atuadores.
-//
-// Fluxo:
+// Servidor TCP na porta 6000.
+// Os atuadores iniciam a conexao com o servidor.
+// Isso simplifica a rede com uma unica porta.
+
+// Fluxo basico:
 //  1. Servidor ouve em 0.0.0.0:6000
 //  2. Atuador conecta e envia RegistroAtuador {"node_id":"...", "atuador_id":"..."}
 //  3. Servidor guarda a conexao em atuadorConns[atuadorID]
-//  4. Quando precisar acionar, server escreve ComandoAtuador na conexao existente
-// ════════════════════════════════════════════════════════════════════════════
+//  4. O servidor envia comando na conexao registrada
 
 var (
 	atuadorConns   = make(map[string]net.Conn) // atuadorID -> conexao persistente
 	atuadorConnsMu sync.RWMutex
 )
 
-// EscutarAtuadoresTCP inicia o listener TCP na porta 6000.
-// Todos os atuadores (de qualquer maquina) conectam nesta unica porta.
-// Deve ser chamado uma vez em goroutine separada no servidor.
+// Inicia o listener TCP dos atuadores.
+
 func EscutarAtuadoresTCP(ipPorta string) {
 	listener, err := net.Listen("tcp", ipPorta)
 	if err != nil {
@@ -54,7 +49,7 @@ func EscutarAtuadoresTCP(ipPorta string) {
 	}
 }
 
-// registrarAtuador le o registro inicial e mantem a conexao aberta para comandos.
+// Le o registro inicial e mantem a conexao do atuador.
 func registrarAtuador(conn net.Conn) {
 	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 
@@ -72,9 +67,9 @@ func registrarAtuador(conn net.Conn) {
 		return
 	}
 
-	// Guarda conexao no mapa
+	// Salva a conexao ativa.
 	atuadorConnsMu.Lock()
-	// Fecha conexao anterior do mesmo atuador (reconexao)
+	// Em reconexao, fecha a conexao antiga.
 	if old, ok := atuadorConns[reg.AtuadorID]; ok {
 		old.Close()
 	}
@@ -84,14 +79,14 @@ func registrarAtuador(conn net.Conn) {
 	logger.Atuador.Printf("[TCP:6000] Atuador registrado: %s/%s (%s)",
 		reg.NodeID, reg.AtuadorID, conn.RemoteAddr())
 
-	// Mantem conexao viva — detecta desconexao pelo erro de leitura
-	// Usa scanner para detectar desconexao (Read retorna erro quando o cliente fecha)
+	// Fica em leitura para detectar desconexao.
+
 	scanner := bufio.NewScanner(conn)
 	for scanner.Scan() {
-		// Atuadores nao enviam dados periodicos; linhas vazias sao keepalive opcional
+		// Atuador pode enviar keepalive vazio.
 	}
 
-	// Conexao encerrada (atuador desconectou)
+	// Remove atuador desconectado.
 	atuadorConnsMu.Lock()
 	if atuadorConns[reg.AtuadorID] == conn {
 		delete(atuadorConns, reg.AtuadorID)
@@ -102,16 +97,24 @@ func registrarAtuador(conn net.Conn) {
 	logger.Atuador.Printf("[TCP:6000] Atuador desconectado: %s/%s", reg.NodeID, reg.AtuadorID)
 }
 
-// EnviarComandoTCP envia um comando para o atuador usando a conexao persistente.
-// Se o atuador nao estiver conectado, loga warning e retorna sem erro fatal.
-func EnviarComandoTCP(nodeID, atuadorID, acao, motivo string) {
+// Informa se o atuador esta conectado.
+func AtuadorConectado(atuadorID string) bool {
+	atuadorConnsMu.RLock()
+	defer atuadorConnsMu.RUnlock()
+	_, ok := atuadorConns[atuadorID]
+	return ok
+}
+
+// Envia comando na conexao do atuador e informa se deu certo.
+
+func EnviarComandoTCP(nodeID, atuadorID, acao, motivo string) bool {
 	atuadorConnsMu.RLock()
 	conn, ok := atuadorConns[atuadorID]
 	atuadorConnsMu.RUnlock()
 
 	if !ok {
 		logger.Atuador.Printf("[TCP:6000] Atuador '%s' nao conectado — comando '%s' ignorado", atuadorID, acao)
-		return
+		return false
 	}
 
 	comando := models.ComandoAtuador{
@@ -125,21 +128,22 @@ func EnviarComandoTCP(nodeID, atuadorID, acao, motivo string) {
 	conn.SetWriteDeadline(time.Now().Add(2 * time.Second))
 	if err := json.NewEncoder(conn).Encode(comando); err != nil {
 		logger.Atuador.Printf("[TCP:6000] Erro ao enviar comando para %s: %v", atuadorID, err)
-		// Remove conexao invalida
+		// Remove conexao invalida do mapa.
 		atuadorConnsMu.Lock()
 		if atuadorConns[atuadorID] == conn {
 			delete(atuadorConns, atuadorID)
 		}
 		atuadorConnsMu.Unlock()
 		conn.Close()
-		return
+		return false
 	}
 
 	logger.Atuador.Printf("[TCP:6000] '%s' enviado -> %s/%s", acao, nodeID, atuadorID)
+	return true
 }
 
-// AtuadoresConectados retorna lista de atuadores atualmente conectados.
-// Usado pelo /api/estado para informar quais atuadores estao online.
+// Retorna os IDs dos atuadores conectados.
+
 func AtuadoresConectados() []string {
 	atuadorConnsMu.RLock()
 	defer atuadorConnsMu.RUnlock()
@@ -150,16 +154,12 @@ func AtuadoresConectados() []string {
 	return ids
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-// Lado ATUADOR (cliente) — conecta ao servidor na porta 6000
-//
-// Cada container de atuador chama ConectarAtuadorTCP.
-// Ele se registra e fica em loop lendo comandos do servidor.
-// Se a conexao cair, tenta reconectar automaticamente a cada 3s.
-// ════════════════════════════════════════════════════════════════════════════
+// Lado atuador (cliente TCP).
 
-// ConectarAtuadorTCP e chamado pelo processo cliente no modo atuador.
-// Conecta ao servidor, registra o atuador e aguarda comandos indefinidamente.
+// Em queda de conexao, tenta reconectar a cada 3s.
+
+// Conecta, registra e aguarda comandos do servidor.
+
 func ConectarAtuadorTCP(serverAddr, nodeID, atuadorID string) {
 	for {
 		err := conectarEProcessar(serverAddr, nodeID, atuadorID)
@@ -178,7 +178,7 @@ func conectarEProcessar(serverAddr, nodeID, atuadorID string) error {
 	}
 	defer conn.Close()
 
-	// Envia registro inicial
+	// Envia registro inicial ao servidor.
 	reg := models.RegistroAtuador{NodeID: nodeID, AtuadorID: atuadorID}
 	if err := json.NewEncoder(conn).Encode(reg); err != nil {
 		return err
@@ -186,7 +186,7 @@ func conectarEProcessar(serverAddr, nodeID, atuadorID string) error {
 
 	logger.Atuador.Printf("[ATUADOR] %s/%s registrado no servidor %s", nodeID, atuadorID, serverAddr)
 
-	// Loop de leitura — aguarda comandos do servidor
+	// Loop de leitura dos comandos.
 	scanner := bufio.NewScanner(conn)
 	for scanner.Scan() {
 		linha := scanner.Bytes()
@@ -206,7 +206,7 @@ func conectarEProcessar(serverAddr, nodeID, atuadorID string) error {
 	return scanner.Err()
 }
 
-// processarComandoLocal atualiza o estado local do atuador ao receber um comando.
+// Aplica localmente o comando recebido.
 func processarComandoLocal(cmd models.ComandoAtuador, nodeID, atuadorID string) {
 	estado := cmd.Comando == "LIGAR"
 
@@ -233,7 +233,7 @@ func processarComandoLocal(cmd models.ComandoAtuador, nodeID, atuadorID string) 
 		nodeID, atuadorID, cmd.Comando, cmd.MotivoAcionamento)
 }
 
-// enderecoAtuador: mantido para compatibilidade com modo legado (sem Docker)
+// Compatibilidade com modo legado (sem Docker).
 func enderecoAtuador(atuadorID string) string {
 	if v := os.Getenv("ATUADOR_" + atuadorID); v != "" {
 		return v

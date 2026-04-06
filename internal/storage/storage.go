@@ -20,9 +20,9 @@ const (
 	AlertasFile     = "logs/alertas.json"
 	MaxFileSize     = 5 * 1024 * 1024 // 5MB por arquivo
 
-	// BufferSize: numero de entradas acumuladas antes de gravar em disco.
-	// Com sensores enviando a 1ms (7000 msg/s), este buffer evita I/O excessivo.
-	// Flush ocorre quando o buffer atinge este tamanho OU a cada FlushInterval.
+	// Numero de entradas acumuladas antes de gravar.
+	// Evita I/O excessivo sob alta taxa de sensores.
+	// Flush por tamanho ou por intervalo.
 	BufferSize    = 2000
 	FlushInterval = 3 * time.Second // flush forcado a cada 3 segundos
 )
@@ -33,8 +33,6 @@ var (
 	atuadorBuffer []AtuadorLog
 	stopFlush     = make(chan struct{})
 )
-
-// ── Structs ───────────────────────────────────────────────────────────────────
 
 type SensorLog struct {
 	NodeID        string  `json:"node_id"`
@@ -55,7 +53,7 @@ type AtuadorLog struct {
 	Status    string `json:"status"`
 }
 
-// AlertaLog representa um evento de alerta gerado pelo sistema
+// Estrutura de alerta gerado pelo sistema.
 type AlertaLog struct {
 	ID        string  `json:"id"`
 	NodeID    string  `json:"node_id"`
@@ -67,27 +65,31 @@ type AlertaLog struct {
 	Ack       bool    `json:"ack"`
 }
 
-type SensorLogsData  struct{ Logs []SensorLog  `json:"logs"` }
-type AtuadorLogsData struct{ Logs []AtuadorLog `json:"logs"` }
-type AlertasData     struct{ Alertas []AlertaLog `json:"alertas"` }
-
-// ── Inicializacao ─────────────────────────────────────────────────────────────
+type SensorLogsData struct {
+	Logs []SensorLog `json:"logs"`
+}
+type AtuadorLogsData struct {
+	Logs []AtuadorLog `json:"logs"`
+}
+type AlertasData struct {
+	Alertas []AlertaLog `json:"alertas"`
+}
 
 func InitDB(_ string) error {
 	if err := os.MkdirAll(LogsDir, 0755); err != nil {
 		return fmt.Errorf("erro ao criar diretorio de logs: %v", err)
 	}
 
-	sensorBuffer  = make([]SensorLog,  0, BufferSize)
+	sensorBuffer = make([]SensorLog, 0, BufferSize)
 	atuadorBuffer = make([]AtuadorLog, 0, BufferSize)
 
 	defaults := []struct {
 		file string
 		data interface{}
 	}{
-		{SensorLogsFile,  SensorLogsData{Logs: []SensorLog{}}},
+		{SensorLogsFile, SensorLogsData{Logs: []SensorLog{}}},
 		{AtuadorLogsFile, AtuadorLogsData{Logs: []AtuadorLog{}}},
-		{AlertasFile,     AlertasData{Alertas: []AlertaLog{}}},
+		{AlertasFile, AlertasData{Alertas: []AlertaLog{}}},
 	}
 	for _, d := range defaults {
 		if !fileExists(d.file) {
@@ -97,10 +99,10 @@ func InitDB(_ string) error {
 		}
 	}
 
-	// Goroutine de flush periodico por tempo.
-	// Garante que dados recentes sejam gravados mesmo com buffer nao cheio.
-	// Essencial para nao perder dados entre crashes e manter o JSON atualizado
-	// para o endpoint /api/sensor/ (historico no dashboard).
+	// Flush periodico em background.
+	// Garante gravacao mesmo com buffer parcial.
+	// Mantem historico atualizado para o dashboard.
+
 	go func() {
 		ticker := time.NewTicker(FlushInterval)
 		defer ticker.Stop()
@@ -122,11 +124,9 @@ func InitDB(_ string) error {
 	return nil
 }
 
-// ── Escrita ───────────────────────────────────────────────────────────────────
+// Registra leitura de sensor no buffer.
+// Grava em disco no flush por tamanho ou tempo.
 
-// LogSensor registra leitura de sensor no buffer.
-// Nao bloqueia o chamador — grava em disco somente quando buffer enche
-// ou quando o ticker de FlushInterval dispara.
 func LogSensor(sensor models.MensagemSensor) error {
 	mu.Lock()
 	defer mu.Unlock()
@@ -147,8 +147,8 @@ func LogSensor(sensor models.MensagemSensor) error {
 	return nil
 }
 
-// LogAtuador registra evento de atuador com flush imediato.
-// Atuadores geram poucos eventos mas criticos — nao podem ser perdidos.
+// Registra evento de atuador com flush imediato.
+// Eventos de atuador nao devem ser perdidos.
 func LogAtuador(nodeID, atuadorID, comando, motivo string) error {
 	mu.Lock()
 	defer mu.Unlock()
@@ -164,7 +164,7 @@ func LogAtuador(nodeID, atuadorID, comando, motivo string) error {
 	return flushAtuadorBuffer()
 }
 
-// LogAlerta registra alerta com flush imediato e sem buffer.
+// Registra alerta com flush imediato.
 func LogAlerta(nodeID, tipo string, valor float64, mensagem, nivel string) error {
 	mu.Lock()
 	defer mu.Unlock()
@@ -189,7 +189,7 @@ func LogAlerta(nodeID, tipo string, valor float64, mensagem, nivel string) error
 	return saveJSON(AlertasFile, data)
 }
 
-// AckAlerta marca um alerta como reconhecido pelo operador.
+// Marca um alerta como reconhecido.
 func AckAlerta(id string) error {
 	mu.Lock()
 	defer mu.Unlock()
@@ -207,7 +207,7 @@ func AckAlerta(id string) error {
 	return saveJSON(AlertasFile, data)
 }
 
-// CloseDB grava todos os buffers pendentes antes de encerrar.
+// Grava buffers pendentes antes de encerrar.
 func CloseDB() error {
 	close(stopFlush)
 	mu.Lock()
@@ -221,8 +221,6 @@ func CloseDB() error {
 	log.Println("✓ Storage finalizado")
 	return nil
 }
-
-// ── Buffers internos (chamados com mu travado) ────────────────────────────────
 
 func flushSensorBuffer() error {
 	if len(sensorBuffer) == 0 {
@@ -269,8 +267,6 @@ func flushAtuadorBuffer() error {
 	atuadorBuffer = atuadorBuffer[:0]
 	return err
 }
-
-// ── Queries ───────────────────────────────────────────────────────────────────
 
 func GetSensorDataByType(tipoSensor string, horas int) ([]map[string]interface{}, error) {
 	mu.Lock()
@@ -419,8 +415,12 @@ func GetSensorStats(sensorID string, horas int) (map[string]interface{}, error) 
 	sum, min, max := 0.0, valores[0], valores[0]
 	for _, v := range valores {
 		sum += v
-		if v < min { min = v }
-		if v > max { max = v }
+		if v < min {
+			min = v
+		}
+		if v > max {
+			max = v
+		}
 	}
 	mean := sum / float64(len(valores))
 	variance := 0.0
@@ -453,15 +453,17 @@ func GetAtuadorStats(atuadorID string, horas int) (map[string]interface{}, error
 			continue
 		}
 		total++
-		if l.Comando == "LIGAR" { ligado++ } else { desligado++ }
+		if l.Comando == "LIGAR" {
+			ligado++
+		} else {
+			desligado++
+		}
 	}
 	return map[string]interface{}{
 		"atuador_id": atuadorID, "total_acionamentos": total,
 		"vezes_ligado": ligado, "vezes_desligado": desligado,
 	}, nil
 }
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
 
 func fileExists(filename string) bool {
 	_, err := os.Stat(filename)
@@ -470,25 +472,33 @@ func fileExists(filename string) bool {
 
 func fileSize(fp string) int64 {
 	info, err := os.Stat(fp)
-	if err != nil { return 0 }
+	if err != nil {
+		return 0
+	}
 	return info.Size()
 }
 
 func rotateFile(fp string) error {
-	if !fileExists(fp) { return nil }
-	ext  := fp[strings.LastIndex(fp, "."):]
+	if !fileExists(fp) {
+		return nil
+	}
+	ext := fp[strings.LastIndex(fp, "."):]
 	name := fp[:len(fp)-len(ext)]
 	return os.Rename(fp, fmt.Sprintf("%s_%s%s", name, time.Now().Format("20060102_150405"), ext))
 }
 
 func loadJSON(filename string, v interface{}) error {
 	data, err := os.ReadFile(filename)
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	return json.Unmarshal(data, v)
 }
 
 func saveJSON(filename string, v interface{}) error {
 	data, err := json.MarshalIndent(v, "", "  ")
-	if err != nil { return err }
+	if err != nil {
+		return err
+	}
 	return os.WriteFile(filename, data, 0644)
 }
