@@ -501,12 +501,16 @@ func processarRegrasAutomaticas(sensor models.MensagemSensor) {
 				if acionarAtuador(sensor.NodeID, "bomba_irrigacao_01", "LIGAR", "umidade_baixa") {
 					state.BombaIrrigacao[sensor.NodeID] = true
 					storage.LogAtuador(sensor.NodeID, "bomba_irrigacao_01", "LIGAR", "umidade_baixa")
+					alertas = append(alertas, ap{sensor.NodeID, "umidade",
+						fmt.Sprintf("Umidade baixa: %.2f%% — Bomba acionada automaticamente", sensor.Valor), "aviso", sensor.Valor})
 				}
 			} else if sensor.Valor > max && on {
 				logger.Integrador.Printf("[AUTO] %s: Umidade %.2f%% > %.1f%% -> DESLIGAR BOMBA", sensor.NodeID, sensor.Valor, max)
 				if acionarAtuador(sensor.NodeID, "bomba_irrigacao_01", "DESLIGAR", "umidade_ideal") {
 					state.BombaIrrigacao[sensor.NodeID] = false
 					storage.LogAtuador(sensor.NodeID, "bomba_irrigacao_01", "DESLIGAR", "umidade_ideal")
+					alertas = append(alertas, ap{sensor.NodeID, "umidade",
+						fmt.Sprintf("Umidade normalizada: %.2f%% — Bomba desligada automaticamente", sensor.Valor), "aviso", sensor.Valor})
 				}
 			}
 			if sensor.Valor < crit {
@@ -522,12 +526,16 @@ func processarRegrasAutomaticas(sensor models.MensagemSensor) {
 				if acionarAtuador(sensor.NodeID, "ventilador_01", "LIGAR", "temp_alta") {
 					state.Ventilador[sensor.NodeID] = true
 					storage.LogAtuador(sensor.NodeID, "ventilador_01", "LIGAR", "temp_alta")
+					alertas = append(alertas, ap{sensor.NodeID, "temperatura",
+						fmt.Sprintf("Temperatura alta: %.2fC — Ventilador acionado automaticamente", sensor.Valor), "aviso", sensor.Valor})
 				}
 			} else if sensor.Valor < max-5.0 && on {
 				logger.Integrador.Printf("[AUTO] %s: Temp %.2fC normalizada -> DESLIGAR VENTILADOR", sensor.NodeID, sensor.Valor)
 				if acionarAtuador(sensor.NodeID, "ventilador_01", "DESLIGAR", "temp_normal") {
 					state.Ventilador[sensor.NodeID] = false
 					storage.LogAtuador(sensor.NodeID, "ventilador_01", "DESLIGAR", "temp_normal")
+					alertas = append(alertas, ap{sensor.NodeID, "temperatura",
+						fmt.Sprintf("Temperatura normalizada: %.2fC — Ventilador desligado automaticamente", sensor.Valor), "aviso", sensor.Valor})
 				}
 			}
 			if sensor.Valor > crit {
@@ -543,12 +551,16 @@ func processarRegrasAutomaticas(sensor models.MensagemSensor) {
 				if acionarAtuador(sensor.NodeID, "painel_led_01", "LIGAR", "luz_baixa") {
 					state.LuzArtifical[sensor.NodeID] = true
 					storage.LogAtuador(sensor.NodeID, "painel_led_01", "LIGAR", "luz_baixa")
+					alertas = append(alertas, ap{sensor.NodeID, "luminosidade",
+						fmt.Sprintf("Luminosidade baixa: %.2f Lux — Painel LED acionado automaticamente", sensor.Valor), "aviso", sensor.Valor})
 				}
 			} else if sensor.Valor > min*2 && on {
 				logger.Integrador.Printf("[AUTO] %s: Luz %.2f Lux normalizada -> DESLIGAR LED", sensor.NodeID, sensor.Valor)
 				if acionarAtuador(sensor.NodeID, "painel_led_01", "DESLIGAR", "luz_ok") {
 					state.LuzArtifical[sensor.NodeID] = false
 					storage.LogAtuador(sensor.NodeID, "painel_led_01", "DESLIGAR", "luz_ok")
+					alertas = append(alertas, ap{sensor.NodeID, "luminosidade",
+						fmt.Sprintf("Luminosidade normalizada: %.2f Lux — Painel LED desligado automaticamente", sensor.Valor), "aviso", sensor.Valor})
 				}
 			}
 			if sensor.Valor < crit {
@@ -576,6 +588,8 @@ func processarRegrasAutomaticas(sensor models.MensagemSensor) {
 				if acionarAtuador(sensor.NodeID, "exaustor_teto_01", "DESLIGAR", "amonia_normal") {
 					state.Exaustor[sensor.NodeID] = false
 					storage.LogAtuador(sensor.NodeID, "exaustor_teto_01", "DESLIGAR", "amonia_normal")
+					alertas = append(alertas, ap{sensor.NodeID, "amonia",
+						fmt.Sprintf("Amonia normalizada: %.2f ppm — Exaustor desligado automaticamente", sensor.Valor), "aviso", sensor.Valor})
 				}
 			}
 			if sensor.Valor >= crit {
@@ -591,12 +605,16 @@ func processarRegrasAutomaticas(sensor models.MensagemSensor) {
 				if acionarAtuador(sensor.NodeID, "aquecedor_01", "LIGAR", "temp_baixa") {
 					state.Aquecedor[sensor.NodeID] = true
 					storage.LogAtuador(sensor.NodeID, "aquecedor_01", "LIGAR", "temp_baixa")
+					alertas = append(alertas, ap{sensor.NodeID, "temperatura",
+						fmt.Sprintf("Temperatura baixa: %.2fC — Aquecedor acionado automaticamente", sensor.Valor), "aviso", sensor.Valor})
 				}
 			} else if sensor.Valor > min+5.0 && on {
 				logger.Integrador.Printf("[AUTO] %s: Temp %.2fC normalizada -> DESLIGAR AQUECEDOR", sensor.NodeID, sensor.Valor)
 				if acionarAtuador(sensor.NodeID, "aquecedor_01", "DESLIGAR", "temp_normal") {
 					state.Aquecedor[sensor.NodeID] = false
 					storage.LogAtuador(sensor.NodeID, "aquecedor_01", "DESLIGAR", "temp_normal")
+					alertas = append(alertas, ap{sensor.NodeID, "temperatura",
+						fmt.Sprintf("Temperatura normalizada: %.2fC — Aquecedor desligado automaticamente", sensor.Valor), "aviso", sensor.Valor})
 				}
 			}
 			if sensor.Valor < crit {
@@ -612,12 +630,16 @@ func processarRegrasAutomaticas(sensor models.MensagemSensor) {
 				if acionarAtuador(sensor.NodeID, "motor_comedouro_01", "LIGAR", "racao_baixa") {
 					state.MotorComedouro[sensor.NodeID] = true
 					storage.LogAtuador(sensor.NodeID, "motor_comedouro_01", "LIGAR", "racao_baixa")
+					alertas = append(alertas, ap{sensor.NodeID, "racao",
+						fmt.Sprintf("Racao baixa: %.2f%% — Motor do comedouro acionado automaticamente", sensor.Valor), "aviso", sensor.Valor})
 				}
 			} else if sensor.Valor >= max && on {
 				logger.Integrador.Printf("[AUTO] %s: Racao %.2f%% >= %.1f%% -> DESLIGAR MOTOR", sensor.NodeID, sensor.Valor, max)
 				if acionarAtuador(sensor.NodeID, "motor_comedouro_01", "DESLIGAR", "racao_cheia") {
 					state.MotorComedouro[sensor.NodeID] = false
 					storage.LogAtuador(sensor.NodeID, "motor_comedouro_01", "DESLIGAR", "racao_cheia")
+					alertas = append(alertas, ap{sensor.NodeID, "racao",
+						fmt.Sprintf("Racao normalizada: %.2f%% — Motor do comedouro desligado automaticamente", sensor.Valor), "aviso", sensor.Valor})
 				}
 			}
 			if sensor.Valor < crit {
@@ -633,12 +655,16 @@ func processarRegrasAutomaticas(sensor models.MensagemSensor) {
 				if acionarAtuador(sensor.NodeID, "valvula_agua_01", "LIGAR", "agua_baixa") {
 					state.ValvulaAgua[sensor.NodeID] = true
 					storage.LogAtuador(sensor.NodeID, "valvula_agua_01", "LIGAR", "agua_baixa")
+					alertas = append(alertas, ap{sensor.NodeID, "agua",
+						fmt.Sprintf("Agua baixa: %.2f%% — Valvula de agua acionada automaticamente", sensor.Valor), "aviso", sensor.Valor})
 				}
 			} else if sensor.Valor >= max && on {
 				logger.Integrador.Printf("[AUTO] %s: Agua %.2f%% >= %.1f%% -> DESLIGAR VALVULA", sensor.NodeID, sensor.Valor, max)
 				if acionarAtuador(sensor.NodeID, "valvula_agua_01", "DESLIGAR", "agua_cheia") {
 					state.ValvulaAgua[sensor.NodeID] = false
 					storage.LogAtuador(sensor.NodeID, "valvula_agua_01", "DESLIGAR", "agua_cheia")
+					alertas = append(alertas, ap{sensor.NodeID, "agua",
+						fmt.Sprintf("Agua normalizada: %.2f%% — Valvula de agua desligada automaticamente", sensor.Valor), "aviso", sensor.Valor})
 				}
 			}
 			if sensor.Valor < crit {
