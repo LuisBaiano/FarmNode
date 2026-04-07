@@ -233,39 +233,7 @@ SERVER_ADDR=<IP_DO_SERVIDOR> docker compose -f docker-compose.sensors.yml up --b
 SERVER_ADDR=<IP_DO_SERVIDOR> docker compose -f docker-compose.actuators.yml up --build
 ```
 
-## 12. Comandos Úteis (Ciclo de Vida)
-
-Subir serviços:
-
-```bash
-docker compose up --build -d
-```
-
-Ver status:
-
-```bash
-docker compose ps
-```
-
-Ver logs:
-
-```bash
-docker compose logs -f server
-```
-
-Parar e remover containers/rede:
-
-```bash
-docker compose down
-```
-
-Parar e remover também volumes:
-
-```bash
-docker compose down -v
-```
-
-## 13. Como Usar
+## 12. Como Usar
 
 1. Suba os containers.
 2. Abra `http://<host>:8082/dashboard`.
@@ -274,7 +242,7 @@ docker compose down -v
 5. Verifique alertas críticos/avisos e histórico.
 6. Ajuste limites de configuração pela aba de configurações.
 
-## 14. Persistência e Logs
+## 13. Persistência e Logs
 
 Os dados ficam em `./logs` (volume Docker):
 
@@ -282,7 +250,7 @@ Os dados ficam em `./logs` (volume Docker):
 - `atuador_logs.json`
 - `alertas.json`
 
-## 15. Testes
+## 14. Testes
 
 Validação de build do projeto:
 
@@ -292,7 +260,7 @@ go test ./...
 
 Para teste de carga funcional, executar múltiplas instâncias de sensores/atuadores pelos compose separados.
 
-## 16. Limitações Conhecidas
+## 15. Limitações Conhecidas
 
 - Telemetria em 1ms gera volume muito alto; o sistema reduz gravação em disco por filtro de persistência.
-- O dashboard foi projetado para monitoramento operacional, não para BI histórico de longo prazo.
+- O dashboard foi projetado para monitoramento operacional, não para histórico de longo prazo. (logs em formato JSON são gerados, de modo que possam ser consultados posteriormente)
