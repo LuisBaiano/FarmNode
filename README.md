@@ -266,9 +266,9 @@ Mensagens cliente -> servidor:
 | `SERVER_IP`             | sensores/simulador    | `SERVER_IP=192.168.1.10:8080`    | endereço UDP do servidor                       |
 | `SENSOR_INTERVAL_MS`    | simuladores de sensor | `SENSOR_INTERVAL_MS=1`           | intervalo de envio (ms)                         |
 | `ATUADOR_POLL_MS`       | simuladores           | `ATUADOR_POLL_MS=1000`           | intervalo de polling de estado no servidor (ms) |
-| `UDP_WORKERS`           | servidor              | `UDP_WORKERS=128`                | quantidade de workers de processamento UDP      |
-| `UDP_QUEUE_SIZE`        | servidor              | `UDP_QUEUE_SIZE=131072`          | tamanho da fila de pacotes UDP                  |
-| `UDP_READ_BUFFER_BYTES` | servidor              | `UDP_READ_BUFFER_BYTES=16777216` | buffer de leitura do socket UDP                 |
+| `UDP_WORKERS`           | servidor              | `UDP_WORKERS=256`                | quantidade de workers de processamento UDP      |
+| `UDP_QUEUE_SIZE`        | servidor              | `UDP_QUEUE_SIZE=262144`          | tamanho da fila de pacotes UDP                  |
+| `UDP_READ_BUFFER_BYTES` | servidor              | `UDP_READ_BUFFER_BYTES=33554432` | buffer de leitura do socket UDP                 |
 
 ## 11. Como Executar
 
@@ -301,6 +301,16 @@ Abrir o menu de simuladores:
 ```
 
 O menu permite criar sensores e atuadores por ambiente, com nomes de no ajustados para `Estufa_*` ou `Galinheiro_*`.
+
+O projeto foi configurado para manter sensores em `1ms` e reduzir risco de fila UDP cheia aumentando a capacidade padrao do servidor no `docker-compose`:
+
+```text
+UDP_WORKERS=256
+UDP_QUEUE_SIZE=262144
+UDP_READ_BUFFER_BYTES=33554432
+```
+
+Se ainda houver aviso de fila cheia, suba esses valores no ambiente do servidor antes de reduzir a carga dos sensores.
 
 ### 11.3 Execução em mais de uma máquina (rede local)
 

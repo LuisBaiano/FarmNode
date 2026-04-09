@@ -26,6 +26,9 @@ services:
       - ./logs:/app/logs
     environment:
       - TERMINAL_VELOCIDADE=${TERMINAL_VELOCIDADE:-0}
+      - UDP_WORKERS=${UDP_WORKERS:-256}
+      - UDP_QUEUE_SIZE=${UDP_QUEUE_SIZE:-262144}
+      - UDP_READ_BUFFER_BYTES=${UDP_READ_BUFFER_BYTES:-33554432}
     restart: on-failure
 
 networks:
