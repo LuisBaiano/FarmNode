@@ -17,7 +17,7 @@ No cenário original, cada sensor precisaria abrir conexões diretas para vária
 
 ### 2.1 Componentes principais
 
-![Arquitetura](image/README/1775719375664.png)
+![1775741126445](image/README/1775741126445.png)
 
 1. **Dispositivos virtuais simulados (cmd/client + internal/simulador)**
 
@@ -333,8 +333,7 @@ http://192.168.101.7:8082/dashboard
 4. Acione atuadores manualmente pelos botões.
 5. Verifique alertas críticos/avisos e histórico.
 6. Ajuste limites de configuração pela aba de configurações.
-
-![Dashboard](image/README/1775719912093.png)
+   ![Dashboard](image/README/1775719912093.png)
 
 ## 13. Persistência e Logs
 
@@ -381,9 +380,8 @@ docker compose up --build -d
 ./scripts/stress_test.sh <IP_SERVIDOR>
 ```
 
-![stress-test-terminal](image/README/1775722459609.png)
 
-3. Medir ingestão e erros UDP:
+4. Medir ingestão e erros UDP:
 
 ```bash
 curl http://<IP_SERVIDOR>:8082/api/velocidade
@@ -393,12 +391,7 @@ Indicadores observados:
 
 - `total_datagramas` (vazão recebida)
 - `total_invalidos_json` (erros de payload)
-- `ultimo_datagrama` / `ultimo_invalido_json` (temporalidade)
-
-![api-velocidade](image/README/1775722384947.png)
-
-4. Verificar controle de atuadores e feedback:
-
+- `ultimo_datagrama` / `ultimo_invalido_json` (temporalidade)Verificar controle de atuadores e feedback:
 - enviar comandos no dashboard;
 - confirmar evento de retorno `comando_resultado` e logs em `atuador_logs.json`.
 
