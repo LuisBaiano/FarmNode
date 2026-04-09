@@ -260,15 +260,15 @@ Mensagens cliente -> servidor:
 
 ## 10. Variáveis de Ambiente
 
-| Variável                 | Onde usar               | Exemplo                            | Descrição                                     |
-| ------------------------- | ----------------------- | ---------------------------------- | ----------------------------------------------- |
-| `SERVER_ADDR`           | atuadores/simulador     | `SERVER_ADDR=192.168.1.10:6000`  | endereço TCP do servidor                       |
-| `SERVER_IP`             | sensores/simulador      | `SERVER_IP=192.168.1.10:8080`    | endereço UDP do servidor                       |
-| `SENSOR_INTERVAL_MS`    | simuladores de sensor   | `SENSOR_INTERVAL_MS=1`           | intervalo de envio (ms)                         |
-| `ATUADOR_POLL_MS`       | simuladores             | `ATUADOR_POLL_MS=1000`           | intervalo de polling de estado no servidor (ms) |
-| `UDP_WORKERS`           | servidor                | `UDP_WORKERS=128`                | quantidade de workers de processamento UDP      |
-| `UDP_QUEUE_SIZE`        | servidor                | `UDP_QUEUE_SIZE=131072`          | tamanho da fila de pacotes UDP                  |
-| `UDP_READ_BUFFER_BYTES` | servidor                | `UDP_READ_BUFFER_BYTES=16777216` | buffer de leitura do socket UDP                 |
+| Variável                 | Onde usar             | Exemplo                            | Descrição                                     |
+| ------------------------- | --------------------- | ---------------------------------- | ----------------------------------------------- |
+| `SERVER_ADDR`           | atuadores/simulador   | `SERVER_ADDR=192.168.1.10:6000`  | endereço TCP do servidor                       |
+| `SERVER_IP`             | sensores/simulador    | `SERVER_IP=192.168.1.10:8080`    | endereço UDP do servidor                       |
+| `SENSOR_INTERVAL_MS`    | simuladores de sensor | `SENSOR_INTERVAL_MS=1`           | intervalo de envio (ms)                         |
+| `ATUADOR_POLL_MS`       | simuladores           | `ATUADOR_POLL_MS=1000`           | intervalo de polling de estado no servidor (ms) |
+| `UDP_WORKERS`           | servidor              | `UDP_WORKERS=128`                | quantidade de workers de processamento UDP      |
+| `UDP_QUEUE_SIZE`        | servidor              | `UDP_QUEUE_SIZE=131072`          | tamanho da fila de pacotes UDP                  |
+| `UDP_READ_BUFFER_BYTES` | servidor              | `UDP_READ_BUFFER_BYTES=16777216` | buffer de leitura do socket UDP                 |
 
 ## 11. Como Executar
 
@@ -277,6 +277,8 @@ Mensagens cliente -> servidor:
 ```bash
 docker compose up --build
 ```
+
+![1775757261933](image/README/1775757261933.png)
 
 Acessos:
 
