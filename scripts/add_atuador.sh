@@ -57,13 +57,13 @@ read_positive_int() {
 pick_ambiente() {
   local op
   while true; do
-    echo "Ambiente do no:"
-    echo "  1) Estufa"
-    echo "  2) Galinheiro"
-    read -r -p "Escolha [1-2]: " op || true
+    echo "Qual ambiente:"
+    echo "[1] Galinheiro"
+    echo "[2] Estufa"
+    read -r -p "Escolha: " op || true
     case "$op" in
-      1) echo "Estufa"; return ;;
-      2) echo "Galinheiro"; return ;;
+      1) echo "Galinheiro"; return ;;
+      2) echo "Estufa"; return ;;
     esac
     echo "Opcao invalida."
   done
@@ -73,12 +73,12 @@ pick_tipo_atuador() {
   local ambiente="$1"
   local op
   if [[ "$ambiente" == "Estufa" ]]; then
-    echo "Tipos de atuador para Estufa:"
-    echo "  1) bomba"
-    echo "  2) ventilador"
-    echo "  3) led"
+    echo "Qual tipo de atuador:"
+    echo "[1] bomba"
+    echo "[2] ventilador"
+    echo "[3] led"
     while true; do
-      read -r -p "Escolha o tipo [1-3]: " op || true
+      read -r -p "Escolha: " op || true
       case "$op" in
         1) echo "bomba"; return ;;
         2) echo "ventilador"; return ;;
@@ -87,13 +87,13 @@ pick_tipo_atuador() {
       echo "Opcao invalida."
     done
   else
-    echo "Tipos de atuador para Galinheiro:"
-    echo "  1) exaustor"
-    echo "  2) aquecedor"
-    echo "  3) motor"
-    echo "  4) valvula"
+    echo "Qual tipo de atuador:"
+    echo "[1] exaustor"
+    echo "[2] aquecedor"
+    echo "[3] motor"
+    echo "[4] valvula"
     while true; do
-      read -r -p "Escolha o tipo [1-4]: " op || true
+      read -r -p "Escolha: " op || true
       case "$op" in
         1) echo "exaustor"; return ;;
         2) echo "aquecedor"; return ;;
@@ -109,7 +109,8 @@ read_node_id() {
   local ambiente="$1"
   local fallback="${ambiente}_$(date +%s)"
   local node_id
-  read -r -p "Nome do no [$fallback]: " node_id || true
+  echo "Qual nome do no:"
+  read -r -p "Nome [$fallback]: " node_id || true
   node_id="${node_id:-$fallback}"
   if ! starts_with_ci "$node_id" "$ambiente"; then
     node_id="${ambiente}_${node_id}"
@@ -123,7 +124,8 @@ build_image_if_needed
 AMBIENTE="$(pick_ambiente)"
 TIPO="$(pick_tipo_atuador "$AMBIENTE")"
 NODE="$(read_node_id "$AMBIENTE")"
-QTD="$(read_positive_int "Quantidade de atuadores" 1)"
+echo "Qual quantidade de atuadores:"
+QTD="$(read_positive_int "Quantidade" 1)"
 
 NODE_SLUG="$(slugify "$NODE")"
 NAME_PREFIX="atuador_${NODE_SLUG}_${TIPO}_"
