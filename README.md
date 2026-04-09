@@ -379,8 +379,8 @@ docker compose up --build -d
 ```bash
 ./scripts/stress_test.sh <IP_SERVIDOR>
 ```
-[stress-test](image/README/1775722459609.png)
-[stress-conteiners](image/README/1775741929092.png)
+![stress-test](image/README/1775722459609.png)
+![stress-conteiners](image/README/1775741929092.png)
 
 4. Medir ingestão e erros UDP:
 
@@ -396,7 +396,7 @@ Indicadores observados:
 - enviar comandos no dashboard;
 - confirmar evento de retorno `comando_resultado` e logs em `atuador_logs.json`.
 
-[Dashboard](image/README/1775722384947.png)
+![Datagramas](image/README/1775722384947.png)
 
 ## 15. Limitações Conhecidas
 
