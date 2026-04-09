@@ -2,11 +2,9 @@
 # FarmNode v3 — docker-compose.yml
 #
 # Este arquivo sobe APENAS o servidor.
-# Sensores e atuadores são adicionados dinamicamente via scripts:
+# Sensores e atuadores sao adicionados dinamicamente via menu:
 #
-#   ./scripts/add_sensor.sh  <tipo> <node_id> <qtd> [SERVER_IP]
-#   ./scripts/add_atuador.sh <tipo> <node_id> <qtd> [SERVER_ADDR]
-#   ./scripts/stress_test.sh [SERVER_IP]
+#   ./scripts/choose_menu.sh [SERVER_IP]
 #
 # Suba o servidor com este compose e escale simuladores com os scripts acima.
 # ═══════════════════════════════════════════════════════════════════════════════

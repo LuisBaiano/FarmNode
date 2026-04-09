@@ -284,7 +284,7 @@ Acessos:
 - UDP sensores: `localhost:8080/udp`
 - TCP atuadores: `localhost:6000`
 
-### 11.2 Execução com scripts dinâmicos
+### 11.2 Execucao com menu dinamico
 
 Subir apenas o servidor:
 
@@ -292,29 +292,19 @@ Subir apenas o servidor:
 docker compose up --build -d
 ```
 
-Adicionar sensores dinamicamente:
+Abrir o menu de simuladores:
 
 ```bash
-./scripts/add_sensor.sh umidade Estufa_A 5
+./scripts/choose_menu.sh
 ```
 
-Adicionar atuadores dinamicamente:
-
-```bash
-./scripts/add_atuador.sh bomba Estufa_A 2
-```
-
-Teste de estresse:
-
-```bash
-./scripts/stress_test.sh
-```
+O menu permite criar sensores e atuadores por ambiente, com nomes de no ajustados para `Estufa_*` ou `Galinheiro_*`.
 
 ### 11.3 Execução em mais de uma máquina (rede local)
 
-Use quando o servidor roda em uma máquina e os simuladores em outra.
+Use quando o servidor roda em uma maquina e os simuladores em outra.
 
-Máquina A (servidor):
+Maquina A (servidor):
 
 ```bash
 cd "/caminho/FarmNode
@@ -322,20 +312,19 @@ cd "/caminho/FarmNode
 docker compose up --build -d
 ```
 
-Descubra o IP da Máquina A (exemplo: `192.168.101.7`) e mantenha portas liberadas: UDP `8080`, TCP `6000`, HTTP `8082`.
+Descubra o IP da Maquina A (exemplo: `192.168.101.7`) e mantenha portas liberadas: UDP `8080`, TCP `6000`, HTTP `8082`.
 
-Máquina B (sensores/atuadores):
+Maquina B (simuladores):
 
 ```bash
 cd "/caminho/FarmNode"
-./scripts/add_sensor.sh temperatura Estufa_A 5 192.168.101.7
-./scripts/add_atuador.sh ventilador Estufa_A 2 192.168.101.7
+./scripts/choose_menu.sh 192.168.101.7
 ```
 
-Opcional (menu de carga remoto):
+Opcional (menu remoto):
 
 ```bash
-./scripts/stress_test.sh 192.168.101.7
+./scripts/choose_menu.sh 192.168.101.7
 ```
 
 Dashboard (em qualquer máquina da rede):
@@ -393,10 +382,10 @@ Cobertura implementada no código:
 docker compose up --build -d
 ```
 
-2. Rodar stress interativo:
+2. Rodar menu interativo:
 
 ```bash
-./scripts/stress_test.sh <IP_SERVIDOR>
+./scripts/choose_menu.sh <IP_SERVIDOR>
 ```
 
 ![stress-test](image/README/1775722459609.png)
