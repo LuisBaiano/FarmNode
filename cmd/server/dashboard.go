@@ -101,7 +101,9 @@ canvas{width:100%!important}
 .cfg-node-title{font-weight:bold;font-size:.85rem;color:#1f5c48;margin-bottom:8px;display:flex;align-items:center;gap:5px}
 .cfg-section{margin-bottom:9px}
 .cfg-sec-title{font-size:.71rem;font-weight:bold;text-transform:uppercase;letter-spacing:.05em;color:#456b55;border-bottom:1px solid #d5e8dc;padding-bottom:2px;margin-bottom:6px}
-.cfg-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:6px}
+.cfg-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+@media(max-width:900px){.cfg-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:560px){.cfg-grid{grid-template-columns:1fr}}
 .cfg-field{display:flex;flex-direction:column;gap:2px}
 .cfg-field label{font-size:.7rem;color:#456b55}
 .cfg-field input{border:1px solid #c8ddd1;border-radius:4px;padding:4px 6px;font-size:.81rem}
@@ -188,7 +190,7 @@ let estadoAtual = {};
 let todosAlertas = [];
 let configAtual  = {};
 let sensorChart  = null;
-let sensorSel    = {node:'', alias:'', tipo:''};
+let sensorSel    = {node:'', alias:'', tipo:'', sensorID:''};
 let alertasFaixaAberta = false;
 
 // Ordem de descoberta (estável — nunca re-ordenada pelo sort)
@@ -352,27 +354,37 @@ function tratarResultadoComando(dados) {
 // ── Gráfico ───────────────────────────────────────────────────────────────────
 function atualizarSelectSensores() {
   const sel = document.getElementById('sensor-select');
-  const current = sensorSel.node + '|' + sensorSel.alias;
+  const current = sensorSel.node + '|' + sensorSel.sensorID;
   const opts = [];
   nosOrdem.filter(nid => estadoAtual[nid]).forEach(nid => {
     const sens = Array.isArray((estadoAtual[nid]||{})._sensores) ? estadoAtual[nid]._sensores : [];
-    sens.forEach(s => opts.push({value:nid+'|'+s.alias+'|'+s.tipo, label:nid+' / '+s.alias, node:nid, alias:s.alias}));
+    const sensOrdenados = [...sens].sort((a, b) => {
+      const ka = (a.sensor_id || a.alias || '').toString();
+      const kb = (b.sensor_id || b.alias || '').toString();
+      return ka.localeCompare(kb, 'pt-BR');
+    });
+    sensOrdenados.forEach(s => opts.push({
+      value:nid+'|'+s.alias+'|'+s.tipo+'|'+(s.sensor_id||''),
+      label:nid+' / '+s.alias,
+      node:nid,
+      alias:s.alias,
+      sensorID:s.sensor_id||'',
+    }));
   });
-  const prevLen = sel.options.length;
-  sel.innerHTML = opts.map(o => '<option value="'+o.value+'">'+o.label+'</option>').join('');
   if (!opts.length) return;
-  const idx = opts.findIndex(o => (o.node+'|'+o.alias) === current);
+  const html = opts.map(o => '<option value="'+o.value+'">'+o.label+'</option>').join('');
+  if (sel.innerHTML !== html) sel.innerHTML = html;
+  const idx = opts.findIndex(o => (o.node+'|'+o.sensorID) === current);
   sel.selectedIndex = idx >= 0 ? idx : 0;
-  // Só troca o gráfico se o sensor mudou (preserva histórico)
-  if (idx < 0 || prevLen === 0) trocarSensor();
+  if (idx < 0 || !sensorSel.sensorID) trocarSensor();
 }
 
 function trocarSensor() {
   const sel = document.getElementById('sensor-select');
   if (!sel || !sel.value) return;
   const p = sel.value.split('|');
-  const novoSel = {node:p[0], alias:p[1], tipo:p[2]};
-  if (novoSel.node === sensorSel.node && novoSel.alias === sensorSel.alias) return;
+  const novoSel = {node:p[0], alias:p[1], tipo:p[2], sensorID:p[3] || ''};
+  if (novoSel.node === sensorSel.node && novoSel.sensorID === sensorSel.sensorID) return;
   sensorSel = novoSel;
   document.getElementById('grafico-label').textContent = sensorSel.node + ' › ' + sensorSel.alias;
   criarGrafico();
@@ -483,6 +495,8 @@ const CFG = {
                 {key:'critico_agua',    label:'Crítico (%)'}],
 };
 
+const ORDEM_TIPOS = ['umidade', 'temperatura', 'luminosidade', 'amonia', 'racao', 'agua'];
+
 // Temperatura: campos dependem dos atuadores presentes no nó
 function camposTemp(nodeID) {
   const atus  = ((estadoAtual[nodeID]||{})._atuadores)||[];
@@ -499,7 +513,15 @@ function camposTemp(nodeID) {
 function tiposDoNo(nodeID) {
   const sens = ((estadoAtual[nodeID]||{})._sensores)||[];
   const visto = new Set();
-  return sens.map(s => s.tipo).filter(t => { if(visto.has(t)) return false; visto.add(t); return true; });
+  const tipos = sens.map(s => s.tipo).filter(t => { if(visto.has(t)) return false; visto.add(t); return true; });
+  return tipos.sort((a, b) => {
+    const ia = ORDEM_TIPOS.indexOf(a);
+    const ib = ORDEM_TIPOS.indexOf(b);
+    const oa = ia >= 0 ? ia : ORDEM_TIPOS.length;
+    const ob = ib >= 0 ? ib : ORDEM_TIPOS.length;
+    if (oa !== ob) return oa - ob;
+    return String(a).localeCompare(String(b), 'pt-BR');
+  });
 }
 
 async function carregarConfig() {
