@@ -4,7 +4,7 @@ set -e
 TIPO="${1}"
 NODE="${2}"
 QTD="${3:-1}"
-SERVER_IP="${4:-localhost}"
+SERVER_IP="${4:-localhost}:6000"
 
 if [[ -z "$TIPO" || -z "$NODE" ]]; then
   echo "Uso: $0 <tipo> <node_id> <quantidade> [SERVER_IP]"

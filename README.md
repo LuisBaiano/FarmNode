@@ -310,13 +310,13 @@ Máquina B (sensores/atuadores):
 ```bash
 cd "/caminho/FarmNode"
 ./scripts/add_sensor.sh temperatura Estufa_A 5 192.168.101.7
-./scripts/add_atuador.sh ventilador Estufa_A 2 192.168.101.7:6000
+./scripts/add_atuador.sh ventilador Estufa_A 2 192.168.101.7
 ```
 
 Opcional (menu de carga remoto):
 
 ```bash
-./scripts/stress_test.sh 192.168.101.7 6000
+./scripts/stress_test.sh 192.168.101.7
 ```
 
 Dashboard (em qualquer máquina da rede):
@@ -379,6 +379,7 @@ docker compose up --build -d
 ```bash
 ./scripts/stress_test.sh <IP_SERVIDOR>
 ```
+
 ![stress-test](image/README/1775722459609.png)
 ![stress-conteiners](image/README/1775741929092.png)
 
