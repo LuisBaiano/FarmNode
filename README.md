@@ -17,7 +17,7 @@ No cenário original, cada sensor precisaria abrir conexões diretas para vária
 
 ### 2.1 Componentes principais
 
-![1775741126445](image/README/1775741126445.png)
+![arquitetura](image/README/1775741126445.png)
 
 1. **Dispositivos virtuais simulados (cmd/client + internal/simulador)**
 
@@ -379,7 +379,8 @@ docker compose up --build -d
 ```bash
 ./scripts/stress_test.sh <IP_SERVIDOR>
 ```
-
+[stress-test](image/README/1775722459609.png)
+[stress-conteiners](image/README/1775741929092.png)
 
 4. Medir ingestão e erros UDP:
 
@@ -394,6 +395,8 @@ Indicadores observados:
 - `ultimo_datagrama` / `ultimo_invalido_json` (temporalidade)Verificar controle de atuadores e feedback:
 - enviar comandos no dashboard;
 - confirmar evento de retorno `comando_resultado` e logs em `atuador_logs.json`.
+
+[Dashboard](image/README/1775722384947.png)
 
 ## 15. Limitações Conhecidas
 
