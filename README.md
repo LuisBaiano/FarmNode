@@ -20,17 +20,18 @@ No cenário original, cada sensor precisaria abrir conexões diretas para vária
 ![1775719375664](image/README/1775719375664.png)
 
 1. **Dispositivos virtuais simulados (cmd/client + internal/simulador)**
+
    - Sensores: geram dados contínuos (1ms) e enviam via UDP.
    - Atuadores: conectam via TCP e recebem comandos do servidor.
-
 2. **Serviço de integração (cmd/server)**
+
    - Recebe telemetria UDP (sensores).
    - Mantém conexões TCP persistentes com atuadores.
    - Executa regras automáticas de acionamento.
    - Expõe dashboard HTTP + WebSocket.
    - Persiste histórico e alertas em JSON.
-
 3. **Aplicação cliente (dashboard Web)**
+
    - Visualiza dados em tempo real.
    - Envia comandos de controle.
    - Reconhece alertas.
@@ -49,11 +50,12 @@ No cenário original, cada sensor precisaria abrir conexões diretas para vária
 A solução separa os perfis de tráfego conforme o problema:
 
 - **Telemetria contínua (alta frequência): UDP**
+
   - prioridade para baixa latência;
   - perdas pontuais toleráveis;
   - servidor usa worker pool e fila para alto volume.
-
 - **Comandos críticos: TCP**
+
   - conexão persistente com atuadores;
   - confiabilidade maior para comandos de controle;
   - verificação de disponibilidade do atuador antes de acionar.
@@ -239,10 +241,10 @@ Mensagens cliente -> servidor:
 
 ## 10. Variáveis de Ambiente
 
-| Variável                | Onde usar               | Exemplo                          | Descrição                                       |
-| ----------------------- | ----------------------- | -------------------------------- | ----------------------------------------------- |
-| `SERVER_ADDR`           | atuadores/client direto | `SERVER_ADDR=192.168.1.10:6000`  | endereço TCP do servidor                        |
-| `SERVER_IP`             | sensores/client direto  | `SERVER_IP=192.168.1.10:8080`    | endereço UDP do servidor                        |
+| Variável                 | Onde usar               | Exemplo                            | Descrição                                     |
+| ------------------------- | ----------------------- | ---------------------------------- | ----------------------------------------------- |
+| `SERVER_ADDR`           | atuadores/client direto | `SERVER_ADDR=192.168.1.10:6000`  | endereço TCP do servidor                       |
+| `SERVER_IP`             | sensores/client direto  | `SERVER_IP=192.168.1.10:8080`    | endereço UDP do servidor                       |
 | `SENSOR_INTERVAL_MS`    | simuladores de sensor   | `SENSOR_INTERVAL_MS=1`           | intervalo de envio (ms)                         |
 | `ATUADOR_POLL_MS`       | simuladores             | `ATUADOR_POLL_MS=1000`           | intervalo de polling de estado no servidor (ms) |
 | `UDP_WORKERS`           | servidor                | `UDP_WORKERS=128`                | quantidade de workers de processamento UDP      |
@@ -296,7 +298,8 @@ Use quando o servidor roda em uma máquina e os simuladores em outra.
 Máquina A (servidor):
 
 ```bash
-cd "/caminho/FarmNode_V3.1"
+cd "/caminho/FarmNode
+"
 docker compose up --build -d
 ```
 
@@ -305,7 +308,7 @@ Descubra o IP da Máquina A (exemplo: `192.168.101.7`) e mantenha portas liberad
 Máquina B (sensores/atuadores):
 
 ```bash
-cd "/caminho/FarmNode_V3.1"
+cd "/caminho/FarmNode"
 ./scripts/add_sensor.sh temperatura Estufa_A 5 192.168.101.7
 ./scripts/add_atuador.sh ventilador Estufa_A 2 192.168.101.7:6000
 ```
