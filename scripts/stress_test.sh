@@ -4,7 +4,7 @@ set -euo pipefail
 SERVER_IP="${1:-localhost}"
 SERVER_TCP_PORT="${2:-6000}"
 SERVER_ADDR="${SERVER_IP}:${SERVER_TCP_PORT}"
-IMAGE="farmnode_client"
+IMAGE="farmnode_simulador"
 
 TOTAL_SENSORES=0
 TOTAL_ATUADORES=0
@@ -15,7 +15,7 @@ build_image_if_needed() {
   fi
   echo "Construindo imagem $IMAGE..."
   ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-  docker build -t "$IMAGE" -f "$ROOT_DIR/cmd/client/Dockerfile" "$ROOT_DIR"
+  docker build -t "$IMAGE" -f "$ROOT_DIR/cmd/simulador/Dockerfile" "$ROOT_DIR"
 }
 
 slugify() {
@@ -176,7 +176,7 @@ spawn_sensor() {
     -e "SENSOR_INTERVAL_MS=${sensor_interval_ms}" \
     -e "ATUADOR_POLL_MS=${atuador_poll_ms}" \
     "$IMAGE" \
-    ./client_exec -sensor "$tipo" -node "$node_id" -sensor-id "$sensor_id" \
+    ./simulador_exec -sensor "$tipo" -node "$node_id" -sensor-id "$sensor_id" \
     >/dev/null
 
   TOTAL_SENSORES=$((TOTAL_SENSORES + 1))
@@ -199,7 +199,7 @@ spawn_atuador() {
     --restart on-failure \
     -e "SERVER_ADDR=${SERVER_ADDR}" \
     "$IMAGE" \
-    ./client_exec -atuador "$atuador_id" -node "$node_id" \
+    ./simulador_exec -atuador "$atuador_id" -node "$node_id" \
     >/dev/null
 
   TOTAL_ATUADORES=$((TOTAL_ATUADORES + 1))

@@ -50,7 +50,7 @@ func main() {
 	case *atuadorID != "":
 		if *nodeID == "" {
 			fmt.Fprintf(os.Stderr, "Erro: -node é obrigatório para atuadores\n")
-			fmt.Fprintf(os.Stderr, "Uso: ./client_exec -atuador <id> -node <node_id>\n")
+			fmt.Fprintf(os.Stderr, "Uso: ./simulador_exec -atuador <id> -node <node_id>\n")
 			os.Exit(1)
 		}
 
@@ -65,9 +65,9 @@ func main() {
 
 	// ── Uso incorreto ──────────────────────────────────────────────────────────
 	default:
-		fmt.Println("FarmNode Client — uso:")
-		fmt.Println("  Sensor  : ./client_exec -sensor <tipo> -node <node_id> [-sensor-id <id>]")
-		fmt.Println("  Atuador : ./client_exec -atuador <id> -node <node_id>")
+		fmt.Println("FarmNode Simulador — uso:")
+		fmt.Println("  Sensor  : ./simulador_exec -sensor <tipo> -node <node_id> [-sensor-id <id>]")
+		fmt.Println("  Atuador : ./simulador_exec -atuador <id> -node <node_id>")
 		fmt.Println("")
 		fmt.Println("Tipos de sensor: umidade | temperatura | luminosidade | amonia | racao | agua")
 		fmt.Println("Variável SERVER_IP  (sensor)  — padrão: localhost:8080")

@@ -23,11 +23,11 @@ if ! [[ "$QTD" =~ ^[0-9]+$ ]] || [ "$QTD" -lt 1 ]; then
   exit 1
 fi
 
-IMAGE="farmnode_client"
+IMAGE="farmnode_simulador"
 if ! docker image inspect "$IMAGE" &>/dev/null; then
   echo "Construindo imagem $IMAGE..."
   ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-  docker build -t "$IMAGE" -f "$ROOT_DIR/cmd/client/Dockerfile" "$ROOT_DIR"
+  docker build -t "$IMAGE" -f "$ROOT_DIR/cmd/simulador/Dockerfile" "$ROOT_DIR"
 fi
 
 next_index_for_prefix() {
@@ -63,7 +63,7 @@ for offset in $(seq 0 $((QTD - 1))); do
     --restart on-failure \
     -e "SERVER_ADDR=${SERVER_ADDR}" \
     "$IMAGE" \
-    ./client_exec -atuador "$ATUADOR_ID" -node "$NODE"
+    ./simulador_exec -atuador "$ATUADOR_ID" -node "$NODE"
 
   echo "  OK $NOME ($ATUADOR_ID)"
 done

@@ -1,6 +1,6 @@
 # FarmNode - TEC502 - Problema 1 (Rota das Coisas)
 
-Sistema IoT distribuído para integração entre sensores, atuadores e aplicação cliente, desenvolvido sem framework de mensageria, usando apenas comunicação nativa da arquitetura da Internet (UDP/TCP/HTTP/WebSocket).
+Sistema IoT distribuído para integração entre sensores, atuadores e dashboard Web, desenvolvido sem framework de mensageria, usando apenas comunicação nativa da arquitetura da Internet (UDP/TCP/HTTP/WebSocket).
 
 ## 1. Objetivo do Projeto
 
@@ -10,7 +10,7 @@ No cenário original, cada sensor precisaria abrir conexões diretas para vária
 
 - sensores enviam telemetria para o servidor de integração;
 - atuadores mantêm conexão TCP com o servidor;
-- clientes (dashboard) consomem dados em tempo real e enviam comandos via WebSocket;
+- dashboards Web consomem dados em tempo real e enviam comandos via WebSocket;
 - o servidor centraliza regras, roteamento e persistência.
 
 ## 2. Arquitetura e Componentes
@@ -19,8 +19,9 @@ No cenário original, cada sensor precisaria abrir conexões diretas para vária
 
 ![arquitetura](image/README/1775741126445.png)
 
-1. **Dispositivos virtuais simulados (cmd/client + internal/simulador)**
+1. **Dispositivos virtuais simulados (runtime em `cmd/simulador` + física em `internal/simulador`)**
 
+   - Ele executa os processos simulados de sensores e atuadores.
    - Sensores: geram dados contínuos (1ms) e enviam via UDP.
    - Atuadores: conectam via TCP e recebem comandos do servidor.
 2. **Serviço de integração (cmd/server)**
@@ -30,7 +31,7 @@ No cenário original, cada sensor precisaria abrir conexões diretas para vária
    - Executa regras automáticas de acionamento.
    - Expõe dashboard HTTP + WebSocket.
    - Persiste histórico e alertas em JSON.
-3. **Aplicação cliente (dashboard Web)**
+3. **Dashboard Web no navegador**
 
    - Visualiza dados em tempo real.
    - Envia comandos de controle.
@@ -44,6 +45,24 @@ No cenário original, cada sensor precisaria abrir conexões diretas para vária
 3. Se necessário, servidor envia comando TCP para atuador conectado em `:6000`.
 4. Servidor publica estado/alertas via WebSocket (`/ws`) para dashboard.
 5. Dashboard pode enviar comandos manuais e ajustes de configuração.
+
+### 2.3 Rigidez atual da simulação
+
+Embora o servidor aceite descoberta dinâmica, a simulação embutida não é totalmente livre. Ela possui dois perfis de ambiente e um conjunto conhecido de tipos.
+
+- **Regra dos nós (`node_id`)**
+  - Se o `node_id` começa com `Galinheiro`, o processo usa a física de galinheiro.
+  - Qualquer outro prefixo cai na física de estufa.
+  - Na prática, os nomes esperados são do tipo `Estufa_*` e `Galinheiro_*`.
+- **Sensores simulados por ambiente**
+  - Estufa: `umidade`, `temperatura`, `luminosidade`.
+  - Galinheiro: `amonia`, `temperatura`, `racao`, `agua`.
+- **Atuadores simulados por ambiente**
+  - Estufa: `bomba`, `ventilador`, `led`.
+  - Galinheiro: `exaustor`, `aquecedor`, `motor`, `valvula`.
+- **Observação importante**
+  - Os scripts aceitam apenas esses tipos.
+  - O servidor até consegue registrar IDs arbitrários, mas a simulação física e as regras do sistema assumem os tipos acima.
 
 ## 3. Perfis de Tráfego e QoS
 
@@ -211,8 +230,8 @@ Mensagens cliente -> servidor:
 │   │   ├── server_main.go
 │   │   ├── dashboard.go
 │   │   └── Dockerfile
-│   └── client/
-│       ├── client_main.go
+│   └── simulador/
+│       ├── simulador_main.go
 │       └── Dockerfile
 ├── internal/
 │   ├── logger/
@@ -243,8 +262,8 @@ Mensagens cliente -> servidor:
 
 | Variável                 | Onde usar               | Exemplo                            | Descrição                                     |
 | ------------------------- | ----------------------- | ---------------------------------- | ----------------------------------------------- |
-| `SERVER_ADDR`           | atuadores/client direto | `SERVER_ADDR=192.168.1.10:6000`  | endereço TCP do servidor                       |
-| `SERVER_IP`             | sensores/client direto  | `SERVER_IP=192.168.1.10:8080`    | endereço UDP do servidor                       |
+| `SERVER_ADDR`           | atuadores/simulador     | `SERVER_ADDR=192.168.1.10:6000`  | endereço TCP do servidor                       |
+| `SERVER_IP`             | sensores/simulador      | `SERVER_IP=192.168.1.10:8080`    | endereço UDP do servidor                       |
 | `SENSOR_INTERVAL_MS`    | simuladores de sensor   | `SENSOR_INTERVAL_MS=1`           | intervalo de envio (ms)                         |
 | `ATUADOR_POLL_MS`       | simuladores             | `ATUADOR_POLL_MS=1000`           | intervalo de polling de estado no servidor (ms) |
 | `UDP_WORKERS`           | servidor                | `UDP_WORKERS=128`                | quantidade de workers de processamento UDP      |

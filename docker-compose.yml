@@ -8,7 +8,7 @@
 #   ./scripts/add_atuador.sh <tipo> <node_id> <qtd> [SERVER_ADDR]
 #   ./scripts/stress_test.sh [SERVER_IP]
 #
-# Suba o servidor com este compose e escale clientes com os scripts acima.
+# Suba o servidor com este compose e escale simuladores com os scripts acima.
 # ═══════════════════════════════════════════════════════════════════════════════
 
 services:
