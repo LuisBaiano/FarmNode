@@ -23,6 +23,9 @@ header h1{font-size:.95rem;flex:1}
 #faixa-alertas.visivel{max-height:320px;padding:8px 16px}
 #faixa-alertas h3{font-size:.85rem;color:#c0392b;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center}
 #faixa-alertas h3 span{font-size:.72rem;color:#83968c;cursor:pointer;font-weight:normal}
+#alertas-lista{max-height:250px;overflow-y:auto;padding-right:2px}
+#alertas-lista::-webkit-scrollbar{width:4px}
+#alertas-lista::-webkit-scrollbar-thumb{background:#e0b3ad;border-radius:2px}
 .alerta-item{padding:6px 8px;border-left:3px solid #e67e22;background:#fff8e6;border-radius:5px;margin-bottom:5px;font-size:.77rem}
 .alerta-item.crit{border-left-color:#c0392b;background:#fdecea}
 .alerta-meta{color:#83968c;font-size:.72rem;margin-top:1px}
@@ -249,6 +252,8 @@ function receberEstado(d) {
   renderNos();
   renderAtuadores();
   atualizarSelectSensores();
+  const tabCfg = document.getElementById('tab-config');
+  if (tabCfg && tabCfg.classList.contains('ativo')) renderConfig();
   // Atualiza gráfico do sensor selecionado
   const node = estadoAtual[sensorSel.node] || {};
   const s = (Array.isArray(node._sensores) ? node._sensores : []).find(x => x.alias === sensorSel.alias);
@@ -440,6 +445,13 @@ function renderAlertas() {
   ).join('');
 }
 
+async function sincronizarEstado() {
+  try {
+    const d = await fetch('/api/estado', {cache:'no-store'}).then(r => r.json());
+    receberEstado(d || {});
+  } catch(e){}
+}
+
 // ── Velocidade ────────────────────────────────────────────────────────────────
 async function atualizarVelocidade() {
   try {
@@ -547,7 +559,7 @@ function salvarConfig(nodeID) {
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 async function init() {
-  try { receberEstado(await fetch('/api/estado').then(r => r.json())); } catch(e){}
+  await sincronizarEstado();
   try {
     todosAlertas = await fetch('/api/alertas?ativos=true').then(r => r.json());
     if (!Array.isArray(todosAlertas)) todosAlertas = [];
@@ -560,6 +572,7 @@ async function init() {
 criarGrafico();
 init();
 setInterval(atualizarVelocidade, 2000);
+setInterval(sincronizarEstado, 1500);
 setInterval(carregarConfig, 15000);
 conectarWS();
 </script>

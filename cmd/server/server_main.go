@@ -401,6 +401,21 @@ func monitorarAtuadores() {
 	}
 }
 
+func monitorarEventosAtuador() {
+	for ev := range network.EventosAtuador() {
+		switch ev.Tipo {
+		case "desconectado":
+			msg := fmt.Sprintf("Atuador %s/%s desconectou (%s)", ev.NodeID, ev.AtuadorID, ev.Endereco)
+			logger.Integrador.Printf("[CONEXAO] %s", msg)
+			gerarAlerta(ev.NodeID, ev.AtuadorID, 0, msg, "critico")
+		case "conectado":
+			msg := fmt.Sprintf("Atuador %s/%s conectado (%s)", ev.NodeID, ev.AtuadorID, ev.Endereco)
+			logger.Integrador.Printf("[CONEXAO] %s", msg)
+			gerarAlerta(ev.NodeID, ev.AtuadorID, 0, msg, "aviso")
+		}
+	}
+}
+
 // ── Alertas ───────────────────────────────────────────────────────────────────
 
 var (
@@ -1315,6 +1330,7 @@ func main() {
 	go network.EscutarAtuadoresTCP("0.0.0.0:6000")
 	go monitorarSensores()
 	go monitorarAtuadores()
+	go monitorarEventosAtuador()
 	go startDashboard()
 
 	addr, err := net.ResolveUDPAddr("udp", "0.0.0.0:8080")

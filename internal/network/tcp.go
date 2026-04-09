@@ -22,14 +22,46 @@ type AtuadorConectadoInfo struct {
 	LastSeen  time.Time `json:"last_seen"`
 }
 
+type AtuadorEvento struct {
+	Tipo      string    `json:"tipo"` // conectado | desconectado
+	NodeID    string    `json:"node_id"`
+	AtuadorID string    `json:"atuador_id"`
+	Endereco  string    `json:"endereco"`
+	Quando    time.Time `json:"quando"`
+}
+
 var (
 	atuadorConns   = make(map[string]net.Conn)
 	atuadorMeta    = make(map[string]AtuadorConectadoInfo)
 	atuadorConnsMu sync.RWMutex
+	atuadorEventos = make(chan AtuadorEvento, 2048)
 )
 
 func atuadorKey(nodeID, atuadorID string) string {
 	return nodeID + "|" + atuadorID
+}
+
+func emitirEventoAtuador(tipo, nodeID, atuadorID string, addr net.Addr) {
+	end := ""
+	if addr != nil {
+		end = addr.String()
+	}
+	ev := AtuadorEvento{
+		Tipo:      tipo,
+		NodeID:    nodeID,
+		AtuadorID: atuadorID,
+		Endereco:  end,
+		Quando:    time.Now(),
+	}
+	select {
+	case atuadorEventos <- ev:
+	default:
+		// evita bloquear fluxo de rede sob carga
+	}
+}
+
+func EventosAtuador() <-chan AtuadorEvento {
+	return atuadorEventos
 }
 
 // ── Servidor: escuta conexões de atuadores ────────────────────────────────────
@@ -90,6 +122,7 @@ func registrarAtuador(conn net.Conn) {
 	state.Mutex.Unlock()
 
 	logger.Atuador.Printf("[TCP:6000] Atuador registrado: %s/%s (%s)", reg.NodeID, reg.AtuadorID, conn.RemoteAddr())
+	emitirEventoAtuador("conectado", reg.NodeID, reg.AtuadorID, conn.RemoteAddr())
 
 	scanner := bufio.NewScanner(conn)
 	for scanner.Scan() {
@@ -113,6 +146,7 @@ func registrarAtuador(conn net.Conn) {
 
 	conn.Close()
 	logger.Atuador.Printf("[TCP:6000] Atuador desconectado: %s/%s", reg.NodeID, reg.AtuadorID)
+	emitirEventoAtuador("desconectado", reg.NodeID, reg.AtuadorID, conn.RemoteAddr())
 }
 
 func AtuadorConectado(nodeID, atuadorID string) bool {

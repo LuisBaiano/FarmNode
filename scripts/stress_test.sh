@@ -1,16 +1,4 @@
 #!/usr/bin/env bash
-# ==============================================================================
-# stress_test.sh — Menu interativo para criar sensores por ambiente
-#
-# Uso:
-#   ./stress_test.sh [SERVER_IP] [SERVER_PORT_TCP]
-#
-# Exemplos:
-#   ./stress_test.sh
-#   ./stress_test.sh 192.168.101.7
-#   ./stress_test.sh 192.168.101.7 6000
-# ==============================================================================
-
 set -euo pipefail
 
 SERVER_IP="${1:-localhost}"
@@ -41,6 +29,21 @@ starts_with_ci() {
   [[ "$v" == "$prefix"* ]]
 }
 
+next_index_for_prefix() {
+  local prefix="$1"
+  local max=0
+  local name num
+  while IFS= read -r name; do
+    if [[ "$name" =~ ^${prefix}([0-9]+)$ ]]; then
+      num="${BASH_REMATCH[1]}"
+      if (( num > max )); then
+        max="$num"
+      fi
+    fi
+  done < <(docker ps -a --format '{{.Names}}')
+  echo $((max + 1))
+}
+
 read_positive_int() {
   local prompt="$1"
   local fallback="$2"
@@ -52,7 +55,7 @@ read_positive_int() {
       echo "$value"
       return
     fi
-    echo "Valor inválido. Informe um inteiro >= 1."
+    echo "Valor invalido. Informe um inteiro >= 1."
   done
 }
 
@@ -69,7 +72,7 @@ read_env_ms() {
       echo "$value"
       return
     fi
-    echo "Valor inválido. Informe inteiro entre $min e $max."
+    echo "Valor invalido. Informe inteiro entre $min e $max."
   done
 }
 
@@ -90,7 +93,7 @@ pick_sensor_type() {
         3) echo "luminosidade"; return ;;
         4) echo "todos"; return ;;
       esac
-      echo "Opção inválida." >&2
+      echo "Opcao invalida." >&2
     done
   else
     echo "Tipos de sensor para Galinheiro:" >&2
@@ -108,7 +111,7 @@ pick_sensor_type() {
         4) echo "agua"; return ;;
         5) echo "todos"; return ;;
       esac
-      echo "Opção inválida." >&2
+      echo "Opcao invalida." >&2
     done
   fi
 }
@@ -130,7 +133,7 @@ pick_atuador_type() {
         3) echo "led"; return ;;
         4) echo "todos"; return ;;
       esac
-      echo "Opção inválida." >&2
+      echo "Opcao invalida." >&2
     done
   else
     echo "Tipos de atuador para Galinheiro:" >&2
@@ -148,7 +151,7 @@ pick_atuador_type() {
         4) echo "valvula"; return ;;
         5) echo "todos"; return ;;
       esac
-      echo "Opção inválida." >&2
+      echo "Opcao invalida." >&2
     done
   fi
 }
@@ -158,13 +161,12 @@ spawn_sensor() {
   local tipo="$2"
   local sensor_interval_ms="$3"
   local atuador_poll_ms="$4"
-  local batch="$5"
-  local idx="$6"
+  local idx="$5"
   local node_slug sensor_id container_name
 
   node_slug="$(slugify "$node_id")"
-  sensor_id="s_${tipo}_${batch}_${idx}"
-  container_name="stress_s_${node_slug}_${tipo}_${batch}_${idx}"
+  sensor_id="s_${tipo}_${node_slug}_${idx}"
+  container_name="stress_s_${node_slug}_${tipo}_${idx}"
 
   docker run -d \
     --name "$container_name" \
@@ -178,19 +180,18 @@ spawn_sensor() {
     >/dev/null
 
   TOTAL_SENSORES=$((TOTAL_SENSORES + 1))
-  echo "  ✓ $container_name (tipo=$tipo, node=$node_id)"
+  echo "  OK $container_name (tipo=$tipo, node=$node_id, id=$sensor_id)"
 }
 
 spawn_atuador() {
   local node_id="$1"
   local tipo="$2"
-  local batch="$3"
-  local idx="$4"
+  local idx="$3"
   local node_slug atuador_id container_name
 
   node_slug="$(slugify "$node_id")"
   atuador_id="${tipo}_${node_slug}_${idx}"
-  container_name="stress_a_${node_slug}_${tipo}_${batch}_${idx}"
+  container_name="stress_a_${node_slug}_${tipo}_${idx}"
 
   docker run -d \
     --name "$container_name" \
@@ -202,16 +203,17 @@ spawn_atuador() {
     >/dev/null
 
   TOTAL_ATUADORES=$((TOTAL_ATUADORES + 1))
-  echo "  ✓ $container_name (tipo=$tipo, node=$node_id)"
+  echo "  OK $container_name (tipo=$tipo, node=$node_id, id=$atuador_id)"
 }
 
 create_menu_sensores() {
   local ambiente="$1"
   local default_node="${ambiente}_$(date +%s)"
-  local node_id sensor_type qtd sensor_interval_ms atuador_poll_ms batch i
+  local node_id sensor_type qtd sensor_interval_ms atuador_poll_ms i idx_ini idx
   local tipos=()
+  local node_slug
 
-  read -r -p "Nome do nó [$default_node]: " node_id || true
+  read -r -p "Nome do no [$default_node]: " node_id || true
   node_id="${node_id:-$default_node}"
 
   if ! starts_with_ci "$node_id" "$ambiente"; then
@@ -233,34 +235,37 @@ create_menu_sensores() {
   qtd="$(read_positive_int "Quantidade de sensores por tipo" 5)"
   sensor_interval_ms="$(read_env_ms "Intervalo de envio do sensor (ms)" 1 1 1000)"
   atuador_poll_ms="$(read_env_ms "Intervalo de polling dos atuadores (ms)" 200 1 10000)"
-  batch="$(date +%s%N)"
+  node_slug="$(slugify "$node_id")"
 
   echo
   echo "Criando sensores..."
   echo "  Ambiente: $ambiente"
-  echo "  Nó      : $node_id"
+  echo "  No      : $node_id"
   echo "  Tipo(s) : ${tipos[*]}"
   echo "  Qtd/tipo: $qtd"
   echo "  Server  : UDP ${SERVER_IP}:8080 | TCP ${SERVER_ADDR}"
   echo
 
   for tipo in "${tipos[@]}"; do
-    for i in $(seq 1 "$qtd"); do
-      spawn_sensor "$node_id" "$tipo" "$sensor_interval_ms" "$atuador_poll_ms" "$batch" "$i"
+    idx_ini="$(next_index_for_prefix "stress_s_${node_slug}_${tipo}_")"
+    for i in $(seq 0 $((qtd - 1))); do
+      idx=$((idx_ini + i))
+      spawn_sensor "$node_id" "$tipo" "$sensor_interval_ms" "$atuador_poll_ms" "$idx"
     done
   done
 
   echo
-  echo "Nó '$node_id' criado com sucesso."
+  echo "No '$node_id' criado com sucesso."
 }
 
 create_menu_atuadores() {
   local ambiente="$1"
   local default_node="${ambiente}_$(date +%s)"
-  local node_id atuador_type qtd batch i
+  local node_id atuador_type qtd i idx_ini idx
   local tipos=()
+  local node_slug
 
-  read -r -p "Nome do nó [$default_node]: " node_id || true
+  read -r -p "Nome do no [$default_node]: " node_id || true
   node_id="${node_id:-$default_node}"
 
   if ! starts_with_ci "$node_id" "$ambiente"; then
@@ -280,30 +285,32 @@ create_menu_atuadores() {
   fi
 
   qtd="$(read_positive_int "Quantidade de atuadores por tipo" 3)"
-  batch="$(date +%s%N)"
+  node_slug="$(slugify "$node_id")"
 
   echo
   echo "Criando atuadores..."
   echo "  Ambiente: $ambiente"
-  echo "  Nó      : $node_id"
+  echo "  No      : $node_id"
   echo "  Tipo(s) : ${tipos[*]}"
   echo "  Qtd/tipo: $qtd"
   echo "  Server  : TCP ${SERVER_ADDR}"
   echo
 
   for tipo in "${tipos[@]}"; do
-    for i in $(seq 1 "$qtd"); do
-      spawn_atuador "$node_id" "$tipo" "$batch" "$i"
+    idx_ini="$(next_index_for_prefix "stress_a_${node_slug}_${tipo}_")"
+    for i in $(seq 0 $((qtd - 1))); do
+      idx=$((idx_ini + i))
+      spawn_atuador "$node_id" "$tipo" "$idx"
     done
   done
 
   echo
-  echo "Atuadores do nó '$node_id' criados com sucesso."
+  echo "Atuadores do no '$node_id' criados com sucesso."
 }
 
 list_stress_containers() {
   echo
-  echo "Containers stress em execução:"
+  echo "Containers stress em execucao:"
   docker ps --filter "name=stress_" --format "  {{.Names}}  [{{.Status}}]" || true
   echo
 }
@@ -312,7 +319,7 @@ cleanup_stress_containers() {
   echo
   echo "Removendo containers 'stress_'..."
   docker ps -a --filter "name=stress_" -q | xargs -r docker rm -f >/dev/null
-  echo "Limpeza concluída."
+  echo "Limpeza concluida."
   echo
 }
 
@@ -321,8 +328,8 @@ main_menu() {
     echo "============================================================"
     echo " FarmNode - Menu de Stress (sensores por ambiente)"
     echo " Servidor: UDP ${SERVER_IP}:8080 | TCP ${SERVER_ADDR}"
-    echo " Sensores criados nesta sessão: $TOTAL_SENSORES"
-    echo " Atuadores criados nesta sessão: $TOTAL_ATUADORES"
+    echo " Sensores criados nesta sessao: $TOTAL_SENSORES"
+    echo " Atuadores criados nesta sessao: $TOTAL_ATUADORES"
     echo "============================================================"
     echo "1) Criar sensores de Estufa"
     echo "2) Criar sensores de Galinheiro"
@@ -332,7 +339,7 @@ main_menu() {
     echo "6) Limpar containers stress"
     echo "7) Sair"
     echo
-    read -r -p "Escolha uma opção [1-7]: " op || true
+    read -r -p "Escolha uma opcao [1-7]: " op || true
     case "$op" in
       1) create_menu_sensores "Estufa" ;;
       2) create_menu_sensores "Galinheiro" ;;
@@ -345,7 +352,7 @@ main_menu() {
         echo "Monitor de velocidade: curl http://${SERVER_IP}:8082/api/velocidade"
         exit 0
         ;;
-      *) echo "Opção inválida."; echo ;;
+      *) echo "Opcao invalida."; echo ;;
     esac
   done
 }
