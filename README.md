@@ -243,7 +243,7 @@ Mensagens cliente -> servidor:
 | ----------------------- | ----------------------- | -------------------------------- | ----------------------------------------------- |
 | `SERVER_ADDR`           | atuadores/client direto | `SERVER_ADDR=192.168.1.10:6000`  | endereço TCP do servidor                        |
 | `SERVER_IP`             | sensores/client direto  | `SERVER_IP=192.168.1.10:8080`    | endereço UDP do servidor                        |
-| `SENSOR_INTERVAL_MS`    | simuladores de sensor   | `SENSOR_INTERVAL_MS=3`           | intervalo de envio (ms)                         |
+| `SENSOR_INTERVAL_MS`    | simuladores de sensor   | `SENSOR_INTERVAL_MS=1`           | intervalo de envio (ms)                         |
 | `ATUADOR_POLL_MS`       | simuladores             | `ATUADOR_POLL_MS=1000`           | intervalo de polling de estado no servidor (ms) |
 | `UDP_WORKERS`           | servidor                | `UDP_WORKERS=128`                | quantidade de workers de processamento UDP      |
 | `UDP_QUEUE_SIZE`        | servidor                | `UDP_QUEUE_SIZE=131072`          | tamanho da fila de pacotes UDP                  |
@@ -289,6 +289,39 @@ Teste de estresse:
 ./scripts/stress_test.sh
 ```
 
+### 11.3 Execução em mais de uma máquina (rede local)
+
+Use quando o servidor roda em uma máquina e os simuladores em outra.
+
+Máquina A (servidor):
+
+```bash
+cd "/caminho/FarmNode_V3.1"
+docker compose up --build -d
+```
+
+Descubra o IP da Máquina A (exemplo: `192.168.101.7`) e mantenha portas liberadas: UDP `8080`, TCP `6000`, HTTP `8082`.
+
+Máquina B (sensores/atuadores):
+
+```bash
+cd "/caminho/FarmNode_V3.1"
+./scripts/add_sensor.sh temperatura Estufa_A 5 192.168.101.7
+./scripts/add_atuador.sh ventilador Estufa_A 2 192.168.101.7:6000
+```
+
+Opcional (menu de carga remoto):
+
+```bash
+./scripts/stress_test.sh 192.168.101.7 6000
+```
+
+Dashboard (em qualquer máquina da rede):
+
+```text
+http://192.168.101.7:8082/dashboard
+```
+
 ## 12. Como Usar
 
 1. Suba os containers.
@@ -297,7 +330,7 @@ Teste de estresse:
 4. Acione atuadores manualmente pelos botões.
 5. Verifique alertas críticos/avisos e histórico.
 6. Ajuste limites de configuração pela aba de configurações.
-   ![1775719935747](image/README/1775719935747.png)
+   ![Dashboard](image/README/1775719912093.png)
 
 ## 13. Persistência e Logs
 
