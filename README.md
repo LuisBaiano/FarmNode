@@ -133,19 +133,70 @@ Mensagens cliente -> servidor:
 - `GET /api/atuador/history?horas=...` - histórico de atuadores
 - `GET /api/alertas?ativos=true|false` - alertas
 - `GET /api/config` - configuração atual
+- `GET /api/velocidade` - contador de datagramas, inválidos JSON e últimos timestamps
+
+### 4.6 Tratamento de Erros e Limites
+
+- UDP com JSON inválido é descartado e contabilizado em `GET /api/velocidade` (`total_invalidos_json`).
+- Comandos manuais via WebSocket retornam evento `comando_resultado` com `ok=true|false` e `erro` quando aplicável.
+- Leituras UDP usam buffer de 4096 bytes por datagrama no servidor.
+
+### 4.7 Especificação Formal (Fluxo, Sincronização e Erros)
+
+#### UDP Sensor -> Servidor
+
+- Transporte: datagrama UDP (sem handshake).
+- Formato: JSON UTF-8 no corpo do datagrama.
+- Sincronização: cada datagrama é uma leitura independente (não há estado de sessão).
+- Tamanho efetivo: servidor lê até 4096 bytes por datagrama.
+- Erro de formato: JSON inválido é descartado; contador e timestamp são expostos em `/api/velocidade`.
+
+#### TCP Atuador <-> Servidor
+
+- Handshake inicial: atuador envia exatamente 1 JSON `RegistroAtuador` ao conectar.
+- Framing: JSON delimitado por `
+` (line-delimited JSON).
+- Fluxo:
+  1. Atuador conecta em `:6000`.
+  2. Envia `RegistroAtuador`.
+  3. Servidor registra e mantém conexão persistente.
+  4. Servidor envia `ComandoAtuador` sob demanda.
+  5. Atuador processa e permanece conectado (keepalive).
+- Timeouts:
+  - leitura de registro inicial: 5s;
+  - escrita de comando no servidor: 2s;
+  - conexão do atuador para reconexão: `DialTimeout` 5s + backoff exponencial.
+- Erro de fluxo:
+  - registro inválido/ausente: conexão encerrada;
+  - falha de envio: atuador marcado desconectado e comando retorna falha;
+  - tentativa de comando em atuador offline: rejeitada com alerta.
+
+#### WebSocket Dashboard <-> Servidor
+
+- Evento periódico do servidor: `estado` (snapshot de nós/sensores/atuadores).
+- Evento assíncrono de alertas: `alerta`.
+- Evento assíncrono de resultado de comando: `comando_resultado` (`ok`, `erro`, `node_id`, `atuador_id`, `comando`).
+- Mensagens cliente -> servidor:
+  - `comando`
+  - `ack_alerta`
+  - `config`
+- Erro de payload de comando: servidor responde `comando_resultado` com `erro=payload_invalido`.
 
 ## 5. Concorrência e Desempenho
 
-- Worker pool UDP (`NumWorkers = 64`) com fila (`UDPQueueSize = 8192`).
+- Worker pool UDP configurável por ambiente (`UDP_WORKERS`, `UDP_QUEUE_SIZE`) e buffer de socket (`UDP_READ_BUFFER_BYTES`).
 - Broadcast WebSocket para múltiplos clientes simultâneos.
 - Filtro de persistência de sensores para reduzir escrita em disco:
-  - salva por variação mínima (`LogMinVariacao = 0.5`) ou por intervalo (`LogMinIntervalo = 2s`).
+  - salva por variação mínima (`LogMinVariacao = 0.5`) ou por intervalo (`LogMinIntervalo = 2s`);
+  - limite de gravação por sensor para evitar crescimento explosivo sob carga.
 - Throttle de alertas para evitar repetição excessiva.
+- Throttle de avaliação de regras automáticas por sensor/tipo para reduzir sobrecarga sob alta frequência.
 
 ## 6. Confiabilidade Básica
 
-- Monitoramento de sensores por timeout (`SensorTimeoutMs = 5000`).
-- Monitoramento de atuadores esperados com detecção de desconexão.
+- Descoberta dinâmica de sensores/atuadores no primeiro pacote/mensagem.
+- Nomeação automática de sensores por nó e tipo (`temperatura_1`, `temperatura_2`, ...).
+- Monitoramento de inatividade e expiração de dispositivos após 5 minutos sem atividade.
 - Comando só é efetivado quando o atuador está disponível.
 - Atuadores reconectam automaticamente em caso de falha.
 - Tratamento de erros de parse/validação em mensagens JSON.
@@ -170,9 +221,6 @@ Mensagens cliente -> servidor:
 │   ├── state/
 │   └── storage/
 ├── docker-compose.yml
-├── docker-compose.server.yml
-├── docker-compose.sensors.yml
-├── docker-compose.actuators.yml
 ├── go.mod
 └── go.sum
 ```
@@ -194,10 +242,13 @@ Mensagens cliente -> servidor:
 
 | Variável       | Onde usar                                                         | Exemplo                         | Descrição                        |
 | --------------- | ----------------------------------------------------------------- | ------------------------------- | ---------------------------------- |
-| `SERVER_ADDR` | `docker-compose.sensors.yml` e `docker-compose.actuators.yml` | `SERVER_ADDR=192.16.103.2`    | IP/host do servidor                |
-| `SERVER_IP`   | sensores/client direto                                            | `SERVER_IP=192.16.103.2:8080` | endereço UDP completo do servidor |
-
-Observação: em `docker-compose.actuators.yml`, o `:6000` é anexado no próprio compose (`${SERVER_ADDR}:6000`).
+| `SERVER_ADDR` | atuadores/client direto | `SERVER_ADDR=192.168.1.10:6000` | endereço TCP do servidor |
+| `SERVER_IP`   | sensores/client direto | `SERVER_IP=192.168.1.10:8080`   | endereço UDP do servidor |
+| `SENSOR_INTERVAL_MS` | simuladores de sensor | `SENSOR_INTERVAL_MS=3` | intervalo de envio (ms) |
+| `ATUADOR_POLL_MS` | simuladores | `ATUADOR_POLL_MS=1000` | intervalo de polling de estado no servidor (ms) |
+| `UDP_WORKERS` | servidor | `UDP_WORKERS=128` | quantidade de workers de processamento UDP |
+| `UDP_QUEUE_SIZE` | servidor | `UDP_QUEUE_SIZE=131072` | tamanho da fila de pacotes UDP |
+| `UDP_READ_BUFFER_BYTES` | servidor | `UDP_READ_BUFFER_BYTES=16777216` | buffer de leitura do socket UDP |
 
 ## 11. Como Executar
 
@@ -213,24 +264,30 @@ Acessos:
 - UDP sensores: `localhost:8080/udp`
 - TCP atuadores: `localhost:6000`
 
-### 11.2 Execução distribuída (máquinas separadas)
+### 11.2 Execução com scripts dinâmicos
 
-#### Servidor
+Subir apenas o servidor:
 
 ```bash
-docker compose -f docker-compose.server.yml up --build
+docker compose up --build -d
 ```
 
-#### Sensores (em outra máquina)
+Adicionar sensores dinamicamente:
 
 ```bash
-SERVER_ADDR=<IP_DO_SERVIDOR> docker compose -f docker-compose.sensors.yml up --build
+./scripts/add_sensor.sh umidade Estufa_A 5
 ```
 
-#### Atuadores (em outra máquina)
+Adicionar atuadores dinamicamente:
 
 ```bash
-SERVER_ADDR=<IP_DO_SERVIDOR> docker compose -f docker-compose.actuators.yml up --build
+./scripts/add_atuador.sh bomba Estufa_A 2
+```
+
+Teste de estresse:
+
+```bash
+./scripts/stress_test.sh
 ```
 
 ## 12. Como Usar
@@ -252,13 +309,57 @@ Os dados ficam em `./logs` (volume Docker):
 
 ## 14. Testes
 
-Validação de build do projeto:
+### 14.1 Testes automatizados (Go)
 
 ```bash
 go test ./...
 ```
 
-Para teste de carga funcional, executar múltiplas instâncias de sensores/atuadores pelos compose separados.
+Cobertura implementada no código:
+
+- `internal/state/environment_test.go`
+  - mapeamento estável sensor->atuador por chave
+  - round-robin quando não há chave
+  - fallback de identificação para atuador LED
+- `internal/simulador/config_test.go`
+  - limites de `envDurationMS`
+  - parsing de tipo de atuador por `atuador_id`
+- `cmd/server/ws_protocol_test.go`
+  - encode/decode de frame WebSocket texto
+  - decode de frame mascarado (cliente -> servidor)
+- `cmd/server/api_velocidade_test.go`
+  - contrato mínimo de campos em `/api/velocidade`
+
+### 14.2 Teste de carga e desempenho (múltiplos dispositivos)
+
+1. Subir servidor:
+
+```bash
+docker compose up --build -d
+```
+
+2. Rodar stress interativo:
+
+```bash
+./scripts/stress_test.sh <IP_SERVIDOR>
+```
+
+3. Medir ingestão e erros UDP:
+
+```bash
+curl http://<IP_SERVIDOR>:8082/api/velocidade
+```
+
+Indicadores observados:
+
+- `total_datagramas` (vazão recebida)
+- `total_invalidos_json` (erros de payload)
+- `ultimo_datagrama` / `ultimo_invalido_json` (temporalidade)
+
+4. Verificar controle de atuadores e feedback:
+
+- enviar comandos no dashboard;
+- confirmar evento de retorno `comando_resultado` e logs em `atuador_logs.json`.
 
 ## 15. Limitações Conhecidas
 

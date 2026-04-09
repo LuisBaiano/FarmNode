@@ -1,70 +1,119 @@
 package state
 
-import "sync"
+import (
+	"hash/fnv"
+	"sort"
+	"strings"
+	"sync"
+)
 
 var (
-	// Garante acesso concorrente seguro aos mapas.
 	Mutex sync.Mutex
 
-	// Valores atuais dos sensores.
-	ValoresSensores = map[string]map[string]float64{
-		"Estufa_A":     make(map[string]float64),
-		"Estufa_B":     make(map[string]float64),
-		"Galinheiro_A": make(map[string]float64),
-		"Galinheiro_B": make(map[string]float64),
-	}
+	// Valores atuais dos sensores: node_id -> tipo -> valor
+	ValoresSensores = map[string]map[string]float64{}
 
-	BombaIrrigacao = make(map[string]bool)
-	Ventilador     = make(map[string]bool)
-	LuzArtifical   = make(map[string]bool)
-	Exaustor       = make(map[string]bool)
-	Aquecedor      = make(map[string]bool)
-	MotorComedouro = make(map[string]bool)
-	ValvulaAgua    = make(map[string]bool)
+	// Estado dos atuadores: node_id -> atuador_id -> ligado/desligado
+	// Totalmente dinâmico — qualquer atuador_id é aceito
+	EstadoAtuadores = map[string]map[string]bool{}
 
-	// Estufa — Bomba de irrigacao
-	// Liga quando umidade < Min, desliga quando > Max
-	AlvoUmidadeMinima = map[string]float64{"Estufa_A": 15.0, "Estufa_B": 15.0}
-	AlvoUmidadeMaxima = map[string]float64{"Estufa_A": 55.0, "Estufa_B": 55.0}
-
-	// Estufa — Ventilador
-	// Liga quando temperatura > Max, desliga quando < (Max - 5graus)
-	AlvoTempMaxima = map[string]float64{"Estufa_A": 35.0, "Estufa_B": 35.0}
-
-	// Estufa — Painel LED
-	// Liga quando luminosidade < Min, desliga quando > (Min * 2)
-	AlvoLuzMinima = map[string]float64{"Estufa_A": 600.0, "Estufa_B": 600.0}
-
-	// Galinheiro — Exaustor (amonia)
-	// Liga quando amonia >= Max, desliga quando < (Max - 10 ppm)
-	AlvoAmoniaMaxima = map[string]float64{"Galinheiro_A": 20.0, "Galinheiro_B": 20.0}
-
-	// Galinheiro — Aquecedor (temperatura)
-	// Liga quando temperatura < Min, desliga quando > (Min + 5graus)
-	AlvoTempMinima = map[string]float64{"Galinheiro_A": 24.0, "Galinheiro_B": 24.0}
-
-	// Galinheiro — Motor Comedouro (racao)
-	// Liga quando racao < Min, desliga quando >= Max
-	AlvoRacaoMinima = map[string]float64{"Galinheiro_A": 10.0, "Galinheiro_B": 10.0}
-	AlvoRacaoMaxima = map[string]float64{"Galinheiro_A": 90.0, "Galinheiro_B": 90.0}
-
-	// Galinheiro — Valvula de Agua
-	// Liga quando agua < Min, desliga quando >= Max
-	AlvoAguaMinima = map[string]float64{"Galinheiro_A": 15.0, "Galinheiro_B": 15.0}
-	AlvoAguaMaxima = map[string]float64{"Galinheiro_A": 80.0, "Galinheiro_B": 80.0}
-
-	// Limites criticos para alerta visual.
-	// A logica automatica continua agindo normalmente, mas o alerta notifica
-	// o operador de que algo anormal ocorreu (falha de equipamento, evento fisico).
-
+	// Limites de acionamento automático por node_id
 	// Estufa
-	LimiteCriticoUmidade      = map[string]float64{"Estufa_A": 5.0, "Estufa_B": 5.0}
-	LimiteCriticoTempEstufa   = map[string]float64{"Estufa_A": 45.0, "Estufa_B": 45.0}
-	LimiteCriticoLuminosidade = map[string]float64{"Estufa_A": 100.0, "Estufa_B": 100.0}
+	AlvoUmidadeMinima = map[string]float64{}
+	AlvoUmidadeMaxima = map[string]float64{}
+	AlvoTempMaxima    = map[string]float64{}
+	AlvoLuzMinima     = map[string]float64{}
 
 	// Galinheiro
-	LimiteCriticoAmonia         = map[string]float64{"Galinheiro_A": 35.0, "Galinheiro_B": 35.0}
-	LimiteCriticoRacao          = map[string]float64{"Galinheiro_A": 5.0, "Galinheiro_B": 5.0}
-	LimiteCriticoAgua           = map[string]float64{"Galinheiro_A": 5.0, "Galinheiro_B": 5.0}
-	LimiteCriticoTempGalinheiro = map[string]float64{"Galinheiro_A": 15.0, "Galinheiro_B": 15.0}
+	AlvoAmoniaMaxima = map[string]float64{}
+	AlvoTempMinima   = map[string]float64{}
+	AlvoRacaoMinima  = map[string]float64{}
+	AlvoRacaoMaxima  = map[string]float64{}
+	AlvoAguaMinima   = map[string]float64{}
+	AlvoAguaMaxima   = map[string]float64{}
+
+	// Limites críticos para alertas visuais
+	LimiteCriticoUmidade        = map[string]float64{}
+	LimiteCriticoTempEstufa     = map[string]float64{}
+	LimiteCriticoLuminosidade   = map[string]float64{}
+	LimiteCriticoAmonia         = map[string]float64{}
+	LimiteCriticoRacao          = map[string]float64{}
+	LimiteCriticoAgua           = map[string]float64{}
+	LimiteCriticoTempGalinheiro = map[string]float64{}
+
+	rrMu              sync.Mutex
+	atuadorRoundRobin = map[string]int{}
 )
+
+// SetAtuador define o estado de um atuador dinamicamente.
+func SetAtuador(nodeID, atuadorID string, ligado bool) {
+	if EstadoAtuadores[nodeID] == nil {
+		EstadoAtuadores[nodeID] = make(map[string]bool)
+	}
+	EstadoAtuadores[nodeID][atuadorID] = ligado
+}
+
+// GetAtuador retorna o estado de um atuador. false se não existir.
+func GetAtuador(nodeID, atuadorID string) bool {
+	if m, ok := EstadoAtuadores[nodeID]; ok {
+		return m[atuadorID]
+	}
+	return false
+}
+
+// FindAtuadorPorTipo mantém compatibilidade: quando não há chave de sensor,
+// usa round-robin por nó+tipo para distribuir comandos entre atuadores.
+func FindAtuadorPorTipo(nodeID, prefixo string) string {
+	return FindAtuadorPorTipoParaChave(nodeID, prefixo, "")
+}
+
+// FindAtuadorPorTipoParaChave seleciona atuador por tipo usando uma chave estável
+// (ex.: sensor_id) para obter mapeamento 1:1 consistente.
+// Se chave vier vazia, usa round-robin por nó+tipo.
+func FindAtuadorPorTipoParaChave(nodeID, prefixo, chave string) string {
+	ids := matchingAtuadores(nodeID, prefixo)
+	if len(ids) == 0 {
+		return ""
+	}
+
+	if chave != "" {
+		idx := hashKey(chave) % len(ids)
+		return ids[idx]
+	}
+
+	rrKey := nodeID + "|" + prefixo
+	rrMu.Lock()
+	idx := atuadorRoundRobin[rrKey] % len(ids)
+	atuadorRoundRobin[rrKey] = (idx + 1) % len(ids)
+	rrMu.Unlock()
+	return ids[idx]
+}
+
+func matchingAtuadores(nodeID, prefixo string) []string {
+	m, ok := EstadoAtuadores[nodeID]
+	if !ok || len(m) == 0 {
+		return nil
+	}
+	ids := make([]string, 0, len(m))
+	for id := range m {
+		if strings.HasPrefix(id, prefixo) || (prefixo == "led" && strings.Contains(id, "led")) {
+			ids = append(ids, id)
+		}
+	}
+	sort.Strings(ids)
+	return ids
+}
+
+func hashKey(s string) int {
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(s))
+	return int(h.Sum32())
+}
+
+// AtuadoresDoNo retorna todos os atuador_ids conhecidos para um nó.
+func AtuadoresDoNo(nodeID string) map[string]bool {
+	if m, ok := EstadoAtuadores[nodeID]; ok {
+		return m
+	}
+	return map[string]bool{}
+}

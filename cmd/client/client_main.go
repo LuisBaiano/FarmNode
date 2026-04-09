@@ -4,103 +4,75 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"strings"
 
 	"FarmNode/internal/network"
 	"FarmNode/internal/simulador"
 )
 
-// Mapeia cada atuador para seu no.
-var nodeDoAtuador = map[string]string{
-	"bomba_irrigacao_01": "Estufa_A",
-	"ventilador_01":      "Estufa_A",
-	"painel_led_01":      "Estufa_A",
-	"exaustor_teto_01":   "Galinheiro_A",
-	"aquecedor_01":       "Galinheiro_A",
-	"motor_comedouro_01": "Galinheiro_A",
-	"valvula_agua_01":    "Galinheiro_A",
-}
-
 func main() {
 	sensorType := flag.String("sensor", "", "Tipo de sensor: umidade|temperatura|luminosidade|amonia|racao|agua")
-	nodeID := flag.String("node", "", "ID do no: Estufa_A|Galinheiro_A")
-	atuadorID := flag.String("atuador", "", "ID do atuador: bomba_irrigacao_01|ventilador_01|...")
+	sensorID := flag.String("sensor-id", "", "ID único do sensor (gerado automaticamente se omitido)")
+	nodeID := flag.String("node", "", "ID do nó (ex: Estufa_A, Galinheiro_B, MeuNo)")
+	atuadorID := flag.String("atuador", "", "ID do atuador (ex: bomba_estufa_a_1)")
 	flag.Parse()
 
 	switch {
 
-	// Envia dados UDP para SERVER_IP:8080.
-	// Simula o ambiente e envia dados crus.
-	// Nao interpreta valores nem registra eventos.
+	// ── Sensor UDP ─────────────────────────────────────────────────────────────
+	// Envia datagramas UDP para SERVER_IP:8080 a cada 1ms.
+	// O servidor faz a descoberta e classificação automática.
 	case *sensorType != "" && *nodeID != "":
+		idSensor := *sensorID
+		if idSensor == "" {
+			idSensor = fmt.Sprintf("sensor_%s_auto", *sensorType)
+		}
 		serverIP := os.Getenv("SERVER_IP")
 		if serverIP == "" {
 			serverIP = "localhost:8080"
 		}
-		fmt.Printf("Sensor '%s' no '%s' iniciado — UDP -> %s (1ms)\n", *sensorType, *nodeID, serverIP)
+		fmt.Printf("[SENSOR] '%s' (id=%s) no='%s' → UDP %s (1ms)\n", *sensorType, idSensor, *nodeID, serverIP)
 
-		switch *nodeID {
-		case "Estufa_A", "Estufa_B":
-			simulador.IniciarSensorEstufa(*nodeID,
-				fmt.Sprintf("sensor_%s_01", *sensorType),
-				*sensorType, serverIP, getUnidade(*sensorType))
+		unidade := getUnidade(*sensorType)
 
-		case "Galinheiro_A", "Galinheiro_B":
-			simulador.IniciarSensorGalinheiro(*nodeID,
-				fmt.Sprintf("sensor_%s_01", *sensorType),
-				*sensorType, serverIP, getUnidade(*sensorType))
-
-		default:
-			fmt.Fprintf(os.Stderr, "No '%s' nao reconhecido\n", *nodeID)
-			os.Exit(1)
+		// O simulador é escolhido pelo prefixo do node_id.
+		// Qualquer nó que comece com "Galinheiro" usa física de galinheiro,
+		// qualquer outro usa física de estufa como padrão.
+		if isGalinheiro(*nodeID) {
+			simulador.IniciarSensorGalinheiro(*nodeID, idSensor, *sensorType, serverIP, unidade)
+		} else {
+			simulador.IniciarSensorEstufa(*nodeID, idSensor, *sensorType, serverIP, unidade)
 		}
 
-	// O atuador conecta no servidor pela porta 6000.
-	// Usa porta unica: SERVER_ADDR:6000.
-	// Reconecta se a conexao cair.
+	// ── Atuador TCP ────────────────────────────────────────────────────────────
+	// Conecta no servidor pela porta 6000 e fica aguardando comandos.
+	// Reconecta automaticamente em caso de queda (backoff de 1s a 10s).
 	case *atuadorID != "":
-		node, ok := nodeDoAtuador[*atuadorID]
-		if !ok {
-			fmt.Fprintf(os.Stderr, "Atuador '%s' nao reconhecido\n", *atuadorID)
+		if *nodeID == "" {
+			fmt.Fprintf(os.Stderr, "Erro: -node é obrigatório para atuadores\n")
+			fmt.Fprintf(os.Stderr, "Uso: ./client_exec -atuador <id> -node <node_id>\n")
 			os.Exit(1)
 		}
 
-		// Endereco do servidor (padrao: localhost:6000).
 		serverAddr := os.Getenv("SERVER_ADDR")
 		if serverAddr == "" {
 			serverAddr = "localhost:6000"
 		}
 
-		fmt.Printf("Atuador '%s' (%s) conectando ao servidor %s...\n", *atuadorID, node, serverAddr)
-		network.ConectarAtuadorTCP(serverAddr, node, *atuadorID)
-		select {} // ConectarAtuadorTCP bloqueia em loop de reconexao
-
-	default:
-		fmt.Println("Modo legado: iniciando todos os sensores e atuadores localmente...")
-
-		serverAddr := os.Getenv("SERVER_ADDR")
-		if serverAddr == "" {
-			serverAddr = "localhost:6000"
-		}
-
-		// Atuadores conectam no servidor pela porta 6000.
-		go network.ConectarAtuadorTCP(serverAddr, "Estufa_A", "bomba_irrigacao_01")
-		go network.ConectarAtuadorTCP(serverAddr, "Estufa_A", "ventilador_01")
-		go network.ConectarAtuadorTCP(serverAddr, "Estufa_A", "painel_led_01")
-		go network.ConectarAtuadorTCP(serverAddr, "Galinheiro_A", "exaustor_teto_01")
-		go network.ConectarAtuadorTCP(serverAddr, "Galinheiro_A", "aquecedor_01")
-		go network.ConectarAtuadorTCP(serverAddr, "Galinheiro_A", "motor_comedouro_01")
-		go network.ConectarAtuadorTCP(serverAddr, "Galinheiro_A", "valvula_agua_01")
-
-		// Sensores enviam UDP para localhost:8080.
-		go simulador.IniciarSensorEstufa("Estufa_A", "sensor_umidade_01", "umidade", "localhost:8080", "%")
-		go simulador.IniciarSensorEstufa("Estufa_A", "sensor_temp_01", "temperatura", "localhost:8080", "C")
-		go simulador.IniciarSensorEstufa("Estufa_A", "sensor_luz_01", "luminosidade", "localhost:8080", "Lux")
-		go simulador.IniciarSensorGalinheiro("Galinheiro_A", "sensor_amonia_01", "amonia", "localhost:8080", "ppm")
-		go simulador.IniciarSensorGalinheiro("Galinheiro_A", "sensor_temp_01", "temperatura", "localhost:8080", "C")
-		go simulador.IniciarSensorGalinheiro("Galinheiro_A", "sensor_racao_01", "racao", "localhost:8080", "%")
-		go simulador.IniciarSensorGalinheiro("Galinheiro_A", "sensor_agua_01", "agua", "localhost:8080", "%")
-
+		fmt.Printf("[ATUADOR] '%s' no='%s' → TCP %s (reconexão automática)\n", *atuadorID, *nodeID, serverAddr)
+		network.ConectarAtuadorTCP(serverAddr, *nodeID, *atuadorID)
 		select {}
+
+	// ── Uso incorreto ──────────────────────────────────────────────────────────
+	default:
+		fmt.Println("FarmNode Client — uso:")
+		fmt.Println("  Sensor  : ./client_exec -sensor <tipo> -node <node_id> [-sensor-id <id>]")
+		fmt.Println("  Atuador : ./client_exec -atuador <id> -node <node_id>")
+		fmt.Println("")
+		fmt.Println("Tipos de sensor: umidade | temperatura | luminosidade | amonia | racao | agua")
+		fmt.Println("Variável SERVER_IP  (sensor)  — padrão: localhost:8080")
+		fmt.Println("Variável SERVER_ADDR (atuador) — padrão: localhost:6000")
+		os.Exit(1)
 	}
 }
 
@@ -117,4 +89,8 @@ func getUnidade(tipo string) string {
 	default:
 		return ""
 	}
+}
+
+func isGalinheiro(nodeID string) bool {
+	return strings.HasPrefix(strings.ToLower(nodeID), "galinheiro")
 }

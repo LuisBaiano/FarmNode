@@ -3,8 +3,9 @@ package network
 import (
 	"bufio"
 	"encoding/json"
+	"fmt"
 	"net"
-	"os"
+	"sort"
 	"sync"
 	"time"
 
@@ -13,22 +14,25 @@ import (
 	"FarmNode/internal/state"
 )
 
-// Servidor TCP na porta 6000.
-// Os atuadores iniciam a conexao com o servidor.
-// Isso simplifica a rede com uma unica porta.
-
-// Fluxo basico:
-//  1. Servidor ouve em 0.0.0.0:6000
-//  2. Atuador conecta e envia RegistroAtuador {"node_id":"...", "atuador_id":"..."}
-//  3. Servidor guarda a conexao em atuadorConns[atuadorID]
-//  4. O servidor envia comando na conexao registrada
+type AtuadorConectadoInfo struct {
+	NodeID    string    `json:"node_id"`
+	AtuadorID string    `json:"atuador_id"`
+	Tipo      string    `json:"tipo"`
+	Conectado bool      `json:"conectado"`
+	LastSeen  time.Time `json:"last_seen"`
+}
 
 var (
-	atuadorConns   = make(map[string]net.Conn) // atuadorID -> conexao persistente
+	atuadorConns   = make(map[string]net.Conn)
+	atuadorMeta    = make(map[string]AtuadorConectadoInfo)
 	atuadorConnsMu sync.RWMutex
 )
 
-// Inicia o listener TCP dos atuadores.
+func atuadorKey(nodeID, atuadorID string) string {
+	return nodeID + "|" + atuadorID
+}
+
+// ── Servidor: escuta conexões de atuadores ────────────────────────────────────
 
 func EscutarAtuadoresTCP(ipPorta string) {
 	listener, err := net.Listen("tcp", ipPorta)
@@ -36,88 +40,101 @@ func EscutarAtuadoresTCP(ipPorta string) {
 		logger.Atuador.Fatalf("[TCP:6000] Erro ao iniciar listener: %v", err)
 	}
 	defer listener.Close()
-
-	logger.Atuador.Printf("[TCP:6000] Aguardando conexoes de atuadores em %s", ipPorta)
+	logger.Atuador.Printf("[TCP:6000] Aguardando atuadores em %s", ipPorta)
 
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
-			logger.Atuador.Printf("[TCP:6000] Erro ao aceitar conexao: %v", err)
+			logger.Atuador.Printf("[TCP:6000] Erro ao aceitar: %v", err)
 			continue
 		}
 		go registrarAtuador(conn)
 	}
 }
 
-// Le o registro inicial e mantem a conexao do atuador.
 func registrarAtuador(conn net.Conn) {
 	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 
 	var reg models.RegistroAtuador
 	if err := json.NewDecoder(conn).Decode(&reg); err != nil {
-		logger.Atuador.Printf("[TCP:6000] Registro invalido de %s: %v", conn.RemoteAddr(), err)
+		logger.Atuador.Printf("[TCP:6000] Registro inválido de %s: %v", conn.RemoteAddr(), err)
 		conn.Close()
 		return
 	}
-	conn.SetReadDeadline(time.Time{}) // remove deadline apos registro
+	conn.SetReadDeadline(time.Time{})
 
 	if reg.AtuadorID == "" || reg.NodeID == "" {
-		logger.Atuador.Printf("[TCP:6000] Registro incompleto de %s", conn.RemoteAddr())
 		conn.Close()
 		return
 	}
 
-	// Salva a conexao ativa.
+	key := atuadorKey(reg.NodeID, reg.AtuadorID)
+
 	atuadorConnsMu.Lock()
-	// Em reconexao, fecha a conexao antiga.
-	if old, ok := atuadorConns[reg.AtuadorID]; ok {
+	if old, ok := atuadorConns[key]; ok && old != conn {
 		old.Close()
 	}
-	atuadorConns[reg.AtuadorID] = conn
+	atuadorConns[key] = conn
+	atuadorMeta[key] = AtuadorConectadoInfo{
+		NodeID:    reg.NodeID,
+		AtuadorID: reg.AtuadorID,
+		Tipo:      tipoDispositivo(reg.AtuadorID),
+		Conectado: true,
+		LastSeen:  time.Now(),
+	}
 	atuadorConnsMu.Unlock()
 
-	logger.Atuador.Printf("[TCP:6000] Atuador registrado: %s/%s (%s)",
-		reg.NodeID, reg.AtuadorID, conn.RemoteAddr())
+	// Registra o atuador no estado dinâmico do servidor
+	state.Mutex.Lock()
+	state.SetAtuador(reg.NodeID, reg.AtuadorID, false)
+	state.Mutex.Unlock()
 
-	// Fica em leitura para detectar desconexao.
+	logger.Atuador.Printf("[TCP:6000] Atuador registrado: %s/%s (%s)", reg.NodeID, reg.AtuadorID, conn.RemoteAddr())
 
 	scanner := bufio.NewScanner(conn)
 	for scanner.Scan() {
-		// Atuador pode enviar keepalive vazio.
+		atuadorConnsMu.Lock()
+		meta := atuadorMeta[key]
+		meta.LastSeen = time.Now()
+		meta.Conectado = true
+		atuadorMeta[key] = meta
+		atuadorConnsMu.Unlock()
 	}
 
-	// Remove atuador desconectado.
 	atuadorConnsMu.Lock()
-	if atuadorConns[reg.AtuadorID] == conn {
-		delete(atuadorConns, reg.AtuadorID)
+	if atual, ok := atuadorConns[key]; ok && atual == conn {
+		delete(atuadorConns, key)
 	}
+	meta := atuadorMeta[key]
+	meta.Conectado = false
+	meta.LastSeen = time.Now()
+	atuadorMeta[key] = meta
 	atuadorConnsMu.Unlock()
 
 	conn.Close()
 	logger.Atuador.Printf("[TCP:6000] Atuador desconectado: %s/%s", reg.NodeID, reg.AtuadorID)
 }
 
-// Informa se o atuador esta conectado.
-func AtuadorConectado(atuadorID string) bool {
+func AtuadorConectado(nodeID, atuadorID string) bool {
 	atuadorConnsMu.RLock()
 	defer atuadorConnsMu.RUnlock()
-	_, ok := atuadorConns[atuadorID]
-	return ok
+	meta, ok := atuadorMeta[atuadorKey(nodeID, atuadorID)]
+	return ok && meta.Conectado
 }
 
-// Envia comando na conexao do atuador e informa se deu certo.
-
 func EnviarComandoTCP(nodeID, atuadorID, acao, motivo string) bool {
+	key := atuadorKey(nodeID, atuadorID)
+
 	atuadorConnsMu.RLock()
-	conn, ok := atuadorConns[atuadorID]
+	conn, ok := atuadorConns[key]
 	atuadorConnsMu.RUnlock()
 
 	if !ok {
-		logger.Atuador.Printf("[TCP:6000] Atuador '%s' nao conectado — comando '%s' ignorado", atuadorID, acao)
+		logger.Atuador.Printf("[TCP:6000] Atuador '%s/%s' não conectado — '%s' ignorado", nodeID, atuadorID, acao)
 		return false
 	}
 
-	comando := models.ComandoAtuador{
+	cmd := models.ComandoAtuador{
 		NodeID:            nodeID,
 		AtuadorID:         atuadorID,
 		Comando:           acao,
@@ -126,48 +143,90 @@ func EnviarComandoTCP(nodeID, atuadorID, acao, motivo string) bool {
 	}
 
 	conn.SetWriteDeadline(time.Now().Add(2 * time.Second))
-	if err := json.NewEncoder(conn).Encode(comando); err != nil {
-		logger.Atuador.Printf("[TCP:6000] Erro ao enviar comando para %s: %v", atuadorID, err)
-		// Remove conexao invalida do mapa.
+	if err := json.NewEncoder(conn).Encode(cmd); err != nil {
+		logger.Atuador.Printf("[TCP:6000] Erro ao enviar para %s/%s: %v", nodeID, atuadorID, err)
 		atuadorConnsMu.Lock()
-		if atuadorConns[atuadorID] == conn {
-			delete(atuadorConns, atuadorID)
+		if atual, ok := atuadorConns[key]; ok && atual == conn {
+			delete(atuadorConns, key)
 		}
+		meta := atuadorMeta[key]
+		meta.Conectado = false
+		meta.LastSeen = time.Now()
+		atuadorMeta[key] = meta
 		atuadorConnsMu.Unlock()
 		conn.Close()
 		return false
 	}
 
-	logger.Atuador.Printf("[TCP:6000] '%s' enviado -> %s/%s", acao, nodeID, atuadorID)
+	logger.Atuador.Printf("[TCP:6000] '%s' -> %s/%s", acao, nodeID, atuadorID)
 	return true
 }
 
-// Retorna os IDs dos atuadores conectados.
-
-func AtuadoresConectados() []string {
+func AtuadoresConectadosInfo() []AtuadorConectadoInfo {
 	atuadorConnsMu.RLock()
 	defer atuadorConnsMu.RUnlock()
-	ids := make([]string, 0, len(atuadorConns))
-	for id := range atuadorConns {
-		ids = append(ids, id)
+
+	keys := make([]string, 0, len(atuadorMeta))
+	for k := range atuadorMeta {
+		keys = append(keys, k)
 	}
-	return ids
+	sort.Strings(keys)
+
+	out := make([]AtuadorConectadoInfo, 0, len(keys))
+	for _, k := range keys {
+		out = append(out, atuadorMeta[k])
+	}
+	return out
 }
 
-// Lado atuador (cliente TCP).
+func AtuadoresPorNode(nodeID string) []AtuadorConectadoInfo {
+	all := AtuadoresConectadosInfo()
+	out := make([]AtuadorConectadoInfo, 0)
+	for _, a := range all {
+		if a.NodeID == nodeID {
+			out = append(out, a)
+		}
+	}
+	return out
+}
 
-// Em queda de conexao, tenta reconectar a cada 3s.
+func PruneAtuadoresInativos(timeout time.Duration) []AtuadorConectadoInfo {
+	cutoff := time.Now().Add(-timeout)
+	removidos := make([]AtuadorConectadoInfo, 0)
 
-// Conecta, registra e aguarda comandos do servidor.
+	atuadorConnsMu.Lock()
+	defer atuadorConnsMu.Unlock()
 
+	for k, meta := range atuadorMeta {
+		if meta.Conectado || meta.LastSeen.After(cutoff) {
+			continue
+		}
+		if conn, ok := atuadorConns[k]; ok {
+			conn.Close()
+			delete(atuadorConns, k)
+		}
+		removidos = append(removidos, meta)
+		delete(atuadorMeta, k)
+	}
+	return removidos
+}
+
+// ── Cliente: conecta no servidor e processa comandos ─────────────────────────
+
+// ConectarAtuadorTCP é chamado pelo container do atuador.
+// Loop infinito com backoff — reconecta automaticamente.
 func ConectarAtuadorTCP(serverAddr, nodeID, atuadorID string) {
+	backoff := 1 * time.Second
 	for {
 		err := conectarEProcessar(serverAddr, nodeID, atuadorID)
 		if err != nil {
-			logger.Atuador.Printf("[ATUADOR] %s/%s: desconectado (%v), reconectando em 3s...",
-				nodeID, atuadorID, err)
+			logger.Atuador.Printf("[ATUADOR] %s/%s: desconectado (%v), reconectando em %s...",
+				nodeID, atuadorID, err, backoff)
 		}
-		time.Sleep(3 * time.Second)
+		time.Sleep(backoff)
+		if backoff < 30*time.Second {
+			backoff *= 2
+		}
 	}
 }
 
@@ -178,77 +237,73 @@ func conectarEProcessar(serverAddr, nodeID, atuadorID string) error {
 	}
 	defer conn.Close()
 
-	// Envia registro inicial ao servidor.
+	if tcp, ok := conn.(*net.TCPConn); ok {
+		tcp.SetKeepAlive(true)
+		tcp.SetKeepAlivePeriod(15 * time.Second)
+	}
+
+	// Registro inicial
 	reg := models.RegistroAtuador{NodeID: nodeID, AtuadorID: atuadorID}
 	if err := json.NewEncoder(conn).Encode(reg); err != nil {
 		return err
 	}
 
-	logger.Atuador.Printf("[ATUADOR] %s/%s registrado no servidor %s", nodeID, atuadorID, serverAddr)
+	logger.Atuador.Printf("[ATUADOR] %s/%s registrado em %s", nodeID, atuadorID, serverAddr)
 
-	// Loop de leitura dos comandos.
+	// Keepalive: envia ping a cada 10s para manter a conexão TCP viva
+	stopKA := make(chan struct{})
+	go func() {
+		t := time.NewTicker(10 * time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-t.C:
+				_, _ = fmt.Fprintln(conn, "{}")
+			case <-stopKA:
+				return
+			}
+		}
+	}()
+
 	scanner := bufio.NewScanner(conn)
 	for scanner.Scan() {
 		linha := scanner.Bytes()
-		if len(linha) == 0 {
-			continue // keepalive vazio
-		}
-
-		var cmd models.ComandoAtuador
-		if err := json.Unmarshal(linha, &cmd); err != nil {
-			logger.Atuador.Printf("[ATUADOR] Comando invalido: %v", err)
+		if len(linha) == 0 || string(linha) == "{}" {
 			continue
 		}
-
-		processarComandoLocal(cmd, nodeID, atuadorID)
+		var cmd models.ComandoAtuador
+		if err := json.Unmarshal(linha, &cmd); err != nil {
+			logger.Atuador.Printf("[ATUADOR] Comando inválido: %v", err)
+			continue
+		}
+		// Aplica o comando no estado local do processo atuador
+		processarComandoLocal(cmd)
 	}
 
+	close(stopKA)
 	return scanner.Err()
 }
 
-// Aplica localmente o comando recebido.
-func processarComandoLocal(cmd models.ComandoAtuador, nodeID, atuadorID string) {
-	estado := cmd.Comando == "LIGAR"
+// processarComandoLocal — totalmente dinâmico.
+// Não depende de IDs fixos: aplica em qualquer atuador_id.
+func processarComandoLocal(cmd models.ComandoAtuador) {
+	ligado := cmd.Comando == "LIGAR"
 
 	state.Mutex.Lock()
-	switch atuadorID {
-	case "bomba_irrigacao_01":
-		state.BombaIrrigacao[nodeID] = estado
-	case "ventilador_01":
-		state.Ventilador[nodeID] = estado
-	case "painel_led_01":
-		state.LuzArtifical[nodeID] = estado
-	case "exaustor_teto_01":
-		state.Exaustor[nodeID] = estado
-	case "aquecedor_01":
-		state.Aquecedor[nodeID] = estado
-	case "motor_comedouro_01":
-		state.MotorComedouro[nodeID] = estado
-	case "valvula_agua_01":
-		state.ValvulaAgua[nodeID] = estado
-	}
+	state.SetAtuador(cmd.NodeID, cmd.AtuadorID, ligado)
 	state.Mutex.Unlock()
 
 	logger.Atuador.Printf("[ATUADOR] %s/%s -> %s (%s)",
-		nodeID, atuadorID, cmd.Comando, cmd.MotivoAcionamento)
+		cmd.NodeID, cmd.AtuadorID, cmd.Comando, cmd.MotivoAcionamento)
 }
 
-// Compatibilidade com modo legado (sem Docker).
-func enderecoAtuador(atuadorID string) string {
-	if v := os.Getenv("ATUADOR_" + atuadorID); v != "" {
-		return v
+// tipoDispositivo extrai o prefixo do atuador_id como tipo.
+// Ex: "bomba_estufa_a_1" -> "bomba"
+func tipoDispositivo(id string) string {
+	for i, c := range id {
+		if c == '_' && i > 0 {
+			return id[:i]
+		}
 	}
-	padroes := map[string]string{
-		"bomba_irrigacao_01": "localhost:6001",
-		"ventilador_01":      "localhost:6002",
-		"painel_led_01":      "localhost:6003",
-		"exaustor_teto_01":   "localhost:6004",
-		"aquecedor_01":       "localhost:6005",
-		"motor_comedouro_01": "localhost:6006",
-		"valvula_agua_01":    "localhost:6007",
-	}
-	if p, ok := padroes[atuadorID]; ok {
-		return p
-	}
-	return "localhost:6001"
+	return id
 }

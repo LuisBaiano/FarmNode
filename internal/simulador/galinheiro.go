@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -14,21 +15,23 @@ import (
 	"FarmNode/internal/models"
 )
 
-// Estado local dos atuadores do galinheiro.
-// Atualizado via GET /api/estado a cada 200ms.
-// Importante: sensores enviam apenas dados crus.
-// A interpretacao e feita no servidor.
-
+// Estado local dos atuadores do galinheiro para simulação física.
+// Detecta atuadores pelo prefixo: "exaustor", "aquecedor", "motor", "valvula".
 var (
-	galinheiroEstadoMu  sync.RWMutex
-	galinheiroExaustor  = map[string]bool{}
-	galinheiroAquecedor = map[string]bool{}
-	galinheiroMotor     = map[string]bool{}
-	galinheiroValvula   = map[string]bool{}
+	galinheiroEstadoMu sync.RWMutex
+	// node_id -> tipo_prefixo -> ligado
+	galinheiroEstado = map[string]map[string]bool{}
 )
 
-// Simula o galinheiro e envia dados via UDP a cada 1ms.
-// O sensor apenas simula e envia os valores.
+func galinheiroLigado(nodeID, prefixo string) bool {
+	galinheiroEstadoMu.RLock()
+	defer galinheiroEstadoMu.RUnlock()
+	if m, ok := galinheiroEstado[nodeID]; ok {
+		return m[prefixo]
+	}
+	return false
+}
+
 func IniciarSensorGalinheiro(nodeID, sensorID, tipo, serverAddr, unidade string) {
 	serverIP := os.Getenv("SERVER_IP")
 	if serverIP == "" {
@@ -39,12 +42,12 @@ func IniciarSensorGalinheiro(nodeID, sensorID, tipo, serverAddr, unidade string)
 	}
 
 	httpBase := deriveHTTPBase(serverIP)
-
-	go pollEstadoGalinheiro(httpBase, nodeID)
+	pollEvery := envDurationMS("ATUADOR_POLL_MS", 1000, 100, 10000)
+	go pollEstadoGalinheiro(httpBase, nodeID, pollEvery)
 
 	enderecoServidor, err := net.ResolveUDPAddr("udp", serverIP)
 	if err != nil {
-		logger.Sensor.Fatalf("[%s/%s] Endereco UDP invalido: %v", nodeID, sensorID, err)
+		logger.Sensor.Fatalf("[%s/%s] Endereço UDP inválido: %v", nodeID, sensorID, err)
 	}
 	conn, err := net.DialUDP("udp", nil, enderecoServidor)
 	if err != nil {
@@ -52,7 +55,8 @@ func IniciarSensorGalinheiro(nodeID, sensorID, tipo, serverAddr, unidade string)
 	}
 	defer conn.Close()
 
-	logger.Sensor.Printf("[%s/%s] Enviando dados UDP -> %s (1ms)", nodeID, sensorID, serverIP)
+	sendEvery := envDurationMS("SENSOR_INTERVAL_MS", 1, 1, 1000)
+	logger.Sensor.Printf("[%s/%s] Enviando UDP -> %s (%s)", nodeID, sensorID, serverIP, sendEvery)
 
 	var valorAtual float64
 	switch tipo {
@@ -67,18 +71,12 @@ func IniciarSensorGalinheiro(nodeID, sensorID, tipo, serverAddr, unidade string)
 	}
 
 	for {
-		galinheiroEstadoMu.RLock()
-		exaustorLigado := galinheiroExaustor[nodeID]
-		aquecedorLigado := galinheiroAquecedor[nodeID]
-		motorLigado := galinheiroMotor[nodeID]
-		valvulaLigada := galinheiroValvula[nodeID]
-		galinheiroEstadoMu.RUnlock()
+		exaustorLigado := galinheiroLigado(nodeID, "exaustor")
+		aquecedorLigado := galinheiroLigado(nodeID, "aquecedor")
+		motorLigado := galinheiroLigado(nodeID, "motor")
+		valvulaLigada := galinheiroLigado(nodeID, "valvula")
 
-		// Simulacao fisica do ambiente.
-		// Eventos aleatorios afetam o valor.
-		// Anomalias sao detectadas no servidor.
 		switch tipo {
-
 		case "amonia":
 			if exaustorLigado {
 				valorAtual -= 0.0015 + rand.Float64()*0.0010
@@ -125,7 +123,6 @@ func IniciarSensorGalinheiro(nodeID, sensorID, tipo, serverAddr, unidade string)
 			valorAtual = clamp(valorAtual, 0, 100)
 		}
 
-		// Envia dado cru via UDP.
 		dadosJSON, err := json.Marshal(models.MensagemSensor{
 			NodeID:        nodeID,
 			SensorID:      sensorID,
@@ -140,12 +137,12 @@ func IniciarSensorGalinheiro(nodeID, sensorID, tipo, serverAddr, unidade string)
 			conn.Write(dadosJSON)
 		}
 
-		time.Sleep(1 * time.Millisecond)
+		time.Sleep(sendEvery)
 	}
 }
 
-// Consulta o estado dos atuadores a cada 200ms.
-func pollEstadoGalinheiro(httpBase, nodeID string) {
+// pollEstadoGalinheiro — mesmo padrão do estufa.go, sem IDs fixos.
+func pollEstadoGalinheiro(httpBase, nodeID string, pollEvery time.Duration) {
 	client := &http.Client{Timeout: 2 * time.Second}
 	for {
 		func() {
@@ -158,21 +155,53 @@ func pollEstadoGalinheiro(httpBase, nodeID string) {
 			if err != nil {
 				return
 			}
-			var estado map[string]map[string]interface{}
+
+			var estado map[string]json.RawMessage
 			if err := json.Unmarshal(body, &estado); err != nil {
 				return
 			}
-			node, ok := estado[nodeID]
+			nodeRaw, ok := estado[nodeID]
 			if !ok {
 				return
 			}
+
+			novo := map[string]bool{}
+
+			// Lê campos "atu_<atuador_id>" que o servidor expõe
+			var nodeData struct {
+				Atuadores []struct {
+					AtuadorID string `json:"atuador_id"`
+					Ligado    bool   `json:"ligado"`
+				} `json:"_atuadores"`
+			}
+			if err := json.Unmarshal(nodeRaw, &nodeData); err == nil {
+				for _, a := range nodeData.Atuadores {
+					tipo := tipoAtuadorID(a.AtuadorID)
+					if tipo != "" {
+						novo[tipo] = novo[tipo] || a.Ligado
+					}
+				}
+			}
+
+			var nodeMap map[string]json.RawMessage
+			if err := json.Unmarshal(nodeRaw, &nodeMap); err == nil {
+				for k, v := range nodeMap {
+					if strings.HasPrefix(k, "atu_") {
+						var ligado bool
+						json.Unmarshal(v, &ligado)
+						atuID := strings.TrimPrefix(k, "atu_")
+						tipo := tipoAtuadorID(atuID)
+						if tipo != "" {
+							novo[tipo] = ligado
+						}
+					}
+				}
+			}
+
 			galinheiroEstadoMu.Lock()
-			galinheiroExaustor[nodeID] = toBool(node["exaustor_ligado"])
-			galinheiroAquecedor[nodeID] = toBool(node["aquecedor_ligado"])
-			galinheiroMotor[nodeID] = toBool(node["motor_ligado"])
-			galinheiroValvula[nodeID] = toBool(node["valvula_ligada"])
+			galinheiroEstado[nodeID] = novo
 			galinheiroEstadoMu.Unlock()
 		}()
-		time.Sleep(200 * time.Millisecond)
+		time.Sleep(pollEvery)
 	}
 }

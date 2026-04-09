@@ -5,644 +5,562 @@ func getDashboardHTML() string {
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<title>FarmNode v3</title>
+<title>FarmNode</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:Arial,sans-serif;background:#eef2ee;color:#2c3e50;font-size:13px}
+body{font-family:Arial,sans-serif;background:#eef4ef;color:#183028;display:flex;flex-direction:column;min-height:100vh}
+
 /* ── Header ── */
-header{background:#2d6a4f;color:white;padding:10px 20px;display:flex;align-items:center;gap:10px}
-header h1{font-size:1rem;font-weight:bold;flex:1}
-#status-ws{font-size:.78rem;padding:2px 9px;border-radius:10px}
-.ws-on{background:#27ae60}.ws-off{background:#c0392b}.ws-rec{background:#e67e22}
-/* ── Nav ── */
-nav{background:#1b4332;display:flex;padding:0 16px}
-nav button{background:none;border:none;color:#a8c4b0;padding:10px 16px;cursor:pointer;font-size:.85rem;border-bottom:3px solid transparent}
-nav button.ativo{color:#fff;border-bottom-color:#52b788}
-nav button:hover{color:#fff}
+header{background:#1f5c48;color:#fff;padding:9px 16px;display:flex;gap:10px;align-items:center;flex-shrink:0;position:sticky;top:0;z-index:100}
+header h1{font-size:.95rem;flex:1}
+#ws-badge{font-size:.75rem;padding:2px 8px;border-radius:10px}
+.ws-on{background:#2ecc71}.ws-off{background:#e74c3c}.ws-rec{background:#f39c12}
+#alerta-badge{background:#e74c3c;color:#fff;border-radius:10px;font-size:.72rem;padding:2px 7px;display:none}
+
+/* ── Alertas — faixa acima do painel ── */
+#faixa-alertas{background:#fff;border-bottom:2px solid #e2ede6;padding:0;overflow:hidden;transition:max-height .3s;max-height:0}
+#faixa-alertas.visivel{max-height:320px;padding:8px 16px}
+#faixa-alertas h3{font-size:.85rem;color:#c0392b;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center}
+#faixa-alertas h3 span{font-size:.72rem;color:#83968c;cursor:pointer;font-weight:normal}
+.alerta-item{padding:6px 8px;border-left:3px solid #e67e22;background:#fff8e6;border-radius:5px;margin-bottom:5px;font-size:.77rem}
+.alerta-item.crit{border-left-color:#c0392b;background:#fdecea}
+.alerta-meta{color:#83968c;font-size:.72rem;margin-top:1px}
+
 /* ── Tabs ── */
-.tab{display:none;padding:14px 16px;max-width:1300px;margin:0 auto}
-.tab.ativo{display:block}
+.tabs-wrap{background:#fff;border-bottom:2px solid #1f5c48;padding:0 16px;display:flex;gap:2px;position:sticky;top:40px;z-index:90}
+.tab{padding:7px 18px;font-size:.83rem;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-2px;color:#456b55;transition:color .15s,border-color .15s}
+.tab:hover{color:#1f5c48}
+.tab.ativo{color:#1f5c48;font-weight:bold;border-bottom-color:#1f5c48}
+
+/* ── Conteúdo principal ── */
+.main{padding:14px;max-width:1600px;margin:0 auto;width:100%;flex:1}
+
+/* ── Layout painel 3 colunas ── */
+.painel-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;align-items:start}
+@media(max-width:1200px){.painel-grid{grid-template-columns:1fr 1fr}}
+@media(max-width:700px){.painel-grid{grid-template-columns:1fr}}
+
 /* ── Cards ── */
-.card{background:#fff;border-radius:8px;padding:14px;box-shadow:0 1px 5px rgba(0,0,0,.07);margin-bottom:12px}
-.card-title{font-size:.9rem;font-weight:bold;color:#1b4332;border-bottom:2px solid #d8f3dc;padding-bottom:5px;margin-bottom:10px}
-/* ── Layout grade principal ── */
-.grade-principal{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px}
-@media(max-width:900px){.grade-principal{grid-template-columns:1fr}}
-/* ── Sensores no card ── */
-.sens-grade{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:10px}
-@media(max-width:700px){.sens-grade{grid-template-columns:1fr 1fr}}
-.sens-item{background:#f6fbf7;border-radius:6px;padding:8px;text-align:center;border:1px solid #e0ede0}
-.sens-label{font-size:.7rem;color:#666;margin-bottom:2px}
-.sens-valor{font-size:1.3rem;font-weight:bold;color:#2d6a4f}
-.sens-unidade{font-size:.72rem;color:#888}
-/* ── Atuadores no card ── */
-.atu-row{display:flex;align-items:center;gap:6px;padding:5px 0;border-bottom:1px solid #f0f0f0}
+.card{background:#fff;border-radius:10px;padding:12px;box-shadow:0 1px 4px rgba(0,0,0,.08)}
+.card h2{font-size:.88rem;color:#1f5c48;padding-bottom:5px;border-bottom:1px solid #e2ede6;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center}
+.card h2 .badge-cnt{font-size:.72rem;color:#83968c;font-weight:normal}
+
+/* ── Scroll interno para cards grandes ── */
+.scroll-inner{max-height:420px;overflow-y:auto;padding-right:2px}
+.scroll-inner::-webkit-scrollbar{width:4px}
+.scroll-inner::-webkit-scrollbar-thumb{background:#c8ddd1;border-radius:2px}
+
+/* ── Nós/Sensores ── */
+.no{border:1px solid #e2ede6;border-radius:8px;padding:8px;margin-bottom:8px;background:#fafdfb}
+.no:last-child{margin-bottom:0}
+.no-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:5px}
+.no-id{font-size:.82rem;font-weight:bold;color:#1f5c48}
+.sensor-row{display:flex;justify-content:space-between;align-items:center;padding:3px 0;border-bottom:1px dashed #e8f0ea;font-size:.76rem}
+.sensor-row:last-child{border-bottom:none}
+.s-alias{font-weight:500}
+.s-id{font-size:.7rem;color:#83968c}
+.s-val{font-weight:bold;color:#183028}
+.s-unit{color:#6b7f75;font-size:.72rem;margin-left:2px}
+
+/* ── Atuadores ── */
+.atu-no{border:1px solid #e2ede6;border-radius:8px;padding:7px;margin-bottom:7px;background:#fafdfb}
+.atu-no:last-child{margin-bottom:0}
+.atu-no-title{font-size:.78rem;font-weight:bold;color:#1f5c48;margin-bottom:5px}
+.atu-row{display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px dashed #e8f0ea;gap:4px}
 .atu-row:last-child{border-bottom:none}
-.atu-label{flex:1;font-size:.82rem;color:#444}
-.st{font-size:.75rem;font-weight:bold;padding:2px 7px;border-radius:8px;min-width:68px;text-align:center}
-.st-on{background:#d8f3dc;color:#1b4332}.st-off{background:#f0f0f0;color:#999}
-.btn{padding:3px 9px;border-radius:4px;border:1px solid;cursor:pointer;font-size:.76rem;background:#fff;transition:.1s}
-.btn:hover{filter:brightness(.9)}
+.atu-info{flex:1;min-width:0}
+.atu-name{font-size:.77rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.atu-tipo{font-size:.69rem;color:#6b7f75}
+.atu-ctrl{display:flex;gap:3px;align-items:center;flex-shrink:0}
+.st{font-size:.68rem;padding:1px 6px;border-radius:7px;font-weight:bold;white-space:nowrap}
+.st-online{background:#d4f4df;color:#1f5c48}
+.st-offline{background:#f2f2f2;color:#999}
+.st-on{background:#1f5c48;color:#fff}
+.st-desl{background:#fdecea;color:#c0392b}
+.btn{border:1px solid #ccc;background:#fff;border-radius:4px;padding:2px 7px;font-size:.72rem;cursor:pointer}
+.btn:disabled{opacity:.3;cursor:default}
 .btn-on{border-color:#27ae60;color:#27ae60}
 .btn-off{border-color:#e74c3c;color:#e74c3c}
-/* ── Grafico ── */
-#grafico-wrap{margin-bottom:12px}
-.grafico-sel{display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap}
-.grafico-sel select{padding:5px 8px;border:1px solid #ccc;border-radius:5px;font-size:.82rem;background:#fff}
-.grafico-sel select:focus{outline:none;border-color:#52b788}
-/* ── Blocos de alertas ── */
-.alertas-grade{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px}
-@media(max-width:700px){.alertas-grade{grid-template-columns:1fr}}
-.bloco-criticos .card-title{color:#c0392b;border-bottom-color:#f5c6c6}
-.bloco-avisos   .card-title{color:#d68910;border-bottom-color:#fde9b0}
-.bloco-hist     .card-title{color:#555;border-bottom-color:#e0e0e0}
-/* ── Card de alerta individual ── */
-.alerta{border-radius:6px;padding:9px 12px;margin-bottom:7px;display:flex;align-items:flex-start;gap:8px}
-.al-critico{background:#fdecea;border-left:4px solid #c0392b;animation:pulse 1.4s infinite}
-.al-aviso  {background:#fff8e1;border-left:4px solid #e67e22}
-.al-ack    {background:#f5f5f5;border-left:4px solid #ccc;opacity:.6}
-@keyframes pulse{0%,100%{opacity:1}50%{opacity:.75}}
-.al-nivel{font-size:.7rem;font-weight:bold;padding:1px 6px;border-radius:8px;white-space:nowrap;align-self:flex-start}
-.nl-critico{background:#c0392b;color:#fff}
-.nl-aviso  {background:#e67e22;color:#fff}
-.nl-ack    {background:#bbb;color:#fff}
-.al-body{flex:1}
-.al-msg {font-size:.83rem;font-weight:bold;line-height:1.3}
-.al-meta{font-size:.71rem;color:#888;margin-top:2px}
-.btn-ack{background:#fff;border:1px solid #ccc;padding:2px 8px;border-radius:4px;cursor:pointer;font-size:.74rem}
-.btn-ack:hover{background:#f0f0f0}
-.sem-dados{color:#bbb;text-align:center;padding:14px;font-size:.83rem}
-/* ── Tabela historico ── */
-table{width:100%;border-collapse:collapse;font-size:.78rem}
-th{background:#f0f4f0;color:#1b4332;padding:5px 9px;text-align:left;font-weight:bold}
-td{padding:4px 9px;border-bottom:1px solid #f0f0f0}
-tr:hover td{background:#fafafa}
+
+/* ── Gráfico ── */
+.sel-row{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:7px}
+select{padding:4px 7px;border-radius:4px;border:1px solid #ccc;font-size:.8rem;flex:1;min-width:0}
+.grafico-label{font-size:.74rem;color:#83968c}
+canvas{width:100%!important}
+
+/* ── Velocidade ── */
+.vel-mono{font-family:monospace;font-size:.77rem;background:#f4f8f5;padding:7px;border-radius:6px;line-height:1.7}
+
 /* ── Config ── */
-.cfg-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
-@media(max-width:700px){.cfg-grid{grid-template-columns:1fr}}
-.cfg-row{display:flex;align-items:center;gap:8px;margin-bottom:8px}
-.cfg-lbl{flex:1;font-size:.83rem;color:#444}
-.cfg-input{width:80px;padding:5px 7px;border:1px solid #ccc;border-radius:4px;font-size:.83rem}
-.cfg-crit{background:#fff5f5;border-radius:4px;padding:3px 6px}
-.cfg-crit .cfg-lbl{color:#c0392b}
-.cfg-crit .cfg-input{border-color:#e88}
-.cfg-h3{font-size:.82rem;font-weight:bold;color:#40916c;margin:10px 0 5px}
-.btn-save{background:#2d6a4f;color:#fff;border:none;padding:8px 18px;border-radius:5px;cursor:pointer;font-size:.85rem;margin-top:10px}
-.btn-save:hover{background:#1b4332}
+.cfg-node{background:#f4f8f5;border-radius:8px;padding:10px;margin-bottom:10px}
+.cfg-node:last-child{margin-bottom:0}
+.cfg-node-title{font-weight:bold;font-size:.85rem;color:#1f5c48;margin-bottom:8px;display:flex;align-items:center;gap:5px}
+.cfg-section{margin-bottom:9px}
+.cfg-sec-title{font-size:.71rem;font-weight:bold;text-transform:uppercase;letter-spacing:.05em;color:#456b55;border-bottom:1px solid #d5e8dc;padding-bottom:2px;margin-bottom:6px}
+.cfg-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:6px}
+.cfg-field{display:flex;flex-direction:column;gap:2px}
+.cfg-field label{font-size:.7rem;color:#456b55}
+.cfg-field input{border:1px solid #c8ddd1;border-radius:4px;padding:4px 6px;font-size:.81rem}
+.cfg-save{background:#1f5c48;color:#fff;border:none;border-radius:5px;padding:5px 14px;font-size:.79rem;cursor:pointer;margin-top:5px}
+.cfg-save:hover{background:#27ae60}
+
+.muted{color:#83968c;font-size:.77rem}
+.tab-content{display:none}
+.tab-content.ativo{display:block}
 </style>
 </head>
 <body>
 
 <header>
-  <h1>FarmNode v3 — Painel Central</h1>
-  <span id="status-ws" class="ws-off">Desconectado</span>
+  <h1>🌱 FarmNode — Painel Dinâmico</h1>
+  <span id="alerta-badge" onclick="toggleAlertas()">0 alertas</span>
+  <span id="ws-badge" class="ws-off">Desconectado</span>
 </header>
 
-<nav>
-  <button class="ativo" onclick="aba('principal')">Painel</button>
-  <button onclick="aba('config')">Configuracoes</button>
-</nav>
-
-<!-- ═══════════════════════ ABA PAINEL ═══════════════════════ -->
-<div id="tab-principal" class="tab ativo">
-
-  <!-- Linha superior: Estufa A | Galinheiro A -->
-  <div class="grade-principal">
-
-    <!-- Estufa A -->
-    <div class="card">
-      <div class="card-title">Estufa A — Sensores e Controles</div>
-
-      <div class="sens-grade">
-        <div class="sens-item">
-          <div class="sens-label">Umidade Solo</div>
-          <div class="sens-valor" id="ea-umidade">--</div>
-          <div class="sens-unidade">%</div>
-        </div>
-        <div class="sens-item">
-          <div class="sens-label">Temperatura</div>
-          <div class="sens-valor" id="ea-temp">--</div>
-          <div class="sens-unidade">C</div>
-        </div>
-        <div class="sens-item">
-          <div class="sens-label">Luminosidade</div>
-          <div class="sens-valor" id="ea-luz">--</div>
-          <div class="sens-unidade">Lux</div>
-        </div>
-      </div>
-
-      <div class="atu-row">
-        <span class="atu-label">Bomba Irrigacao</span>
-        <span class="st st-off" id="st-bomba">DESLIG.</span>
-        <button class="btn btn-on"  onclick="cmd('Estufa_A','bomba_irrigacao_01','LIGAR')">Ligar</button>
-        <button class="btn btn-off" onclick="cmd('Estufa_A','bomba_irrigacao_01','DESLIGAR')">Desligar</button>
-      </div>
-      <div class="atu-row">
-        <span class="atu-label">Ventilador</span>
-        <span class="st st-off" id="st-ventilador">DESLIG.</span>
-        <button class="btn btn-on"  onclick="cmd('Estufa_A','ventilador_01','LIGAR')">Ligar</button>
-        <button class="btn btn-off" onclick="cmd('Estufa_A','ventilador_01','DESLIGAR')">Desligar</button>
-      </div>
-      <div class="atu-row">
-        <span class="atu-label">Painel LED</span>
-        <span class="st st-off" id="st-led">DESLIG.</span>
-        <button class="btn btn-on"  onclick="cmd('Estufa_A','painel_led_01','LIGAR')">Ligar</button>
-        <button class="btn btn-off" onclick="cmd('Estufa_A','painel_led_01','DESLIGAR')">Desligar</button>
-      </div>
-    </div>
-
-    <!-- Galinheiro A -->
-    <div class="card">
-      <div class="card-title">Galinheiro A — Sensores e Controles</div>
-
-      <div class="sens-grade">
-        <div class="sens-item">
-          <div class="sens-label">Amonia</div>
-          <div class="sens-valor" id="ga-amonia">--</div>
-          <div class="sens-unidade">ppm</div>
-        </div>
-        <div class="sens-item">
-          <div class="sens-label">Temperatura</div>
-          <div class="sens-valor" id="ga-temp">--</div>
-          <div class="sens-unidade">C</div>
-        </div>
-        <div class="sens-item">
-          <div class="sens-label">Racao</div>
-          <div class="sens-valor" id="ga-racao">--</div>
-          <div class="sens-unidade">%</div>
-        </div>
-        <div class="sens-item">
-          <div class="sens-label">Agua</div>
-          <div class="sens-valor" id="ga-agua">--</div>
-          <div class="sens-unidade">%</div>
-        </div>
-      </div>
-
-      <div class="atu-row">
-        <span class="atu-label">Exaustor de Teto</span>
-        <span class="st st-off" id="st-exaustor">DESLIG.</span>
-        <button class="btn btn-on"  onclick="cmd('Galinheiro_A','exaustor_teto_01','LIGAR')">Ligar</button>
-        <button class="btn btn-off" onclick="cmd('Galinheiro_A','exaustor_teto_01','DESLIGAR')">Desligar</button>
-      </div>
-      <div class="atu-row">
-        <span class="atu-label">Aquecedor</span>
-        <span class="st st-off" id="st-aquecedor">DESLIG.</span>
-        <button class="btn btn-on"  onclick="cmd('Galinheiro_A','aquecedor_01','LIGAR')">Ligar</button>
-        <button class="btn btn-off" onclick="cmd('Galinheiro_A','aquecedor_01','DESLIGAR')">Desligar</button>
-      </div>
-      <div class="atu-row">
-        <span class="atu-label">Motor Comedouro</span>
-        <span class="st st-off" id="st-motor">DESLIG.</span>
-        <button class="btn btn-on"  onclick="cmd('Galinheiro_A','motor_comedouro_01','LIGAR')">Ligar</button>
-        <button class="btn btn-off" onclick="cmd('Galinheiro_A','motor_comedouro_01','DESLIGAR')">Desligar</button>
-      </div>
-      <div class="atu-row">
-        <span class="atu-label">Valvula de Agua</span>
-        <span class="st st-off" id="st-valvula">DESLIG.</span>
-        <button class="btn btn-on"  onclick="cmd('Galinheiro_A','valvula_agua_01','LIGAR')">Ligar</button>
-        <button class="btn btn-off" onclick="cmd('Galinheiro_A','valvula_agua_01','DESLIGAR')">Desligar</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Grafico historico -->
-  <div id="grafico-wrap" class="card">
-    <div class="card-title">Historico em Tempo Real</div>
-    <div class="grafico-sel">
-      <span style="font-size:.82rem;color:#666">Sensor:</span>
-      <select id="sensor-select" onchange="trocarSensor()">
-        <optgroup label="Estufa A">
-          <option value="Estufa_A|umidade|%">Umidade do Solo</option>
-          <option value="Estufa_A|temperatura|C">Temperatura</option>
-          <option value="Estufa_A|luminosidade|Lux">Luminosidade</option>
-        </optgroup>
-        <optgroup label="Galinheiro A">
-          <option value="Galinheiro_A|amonia|ppm">Amonia</option>
-          <option value="Galinheiro_A|temperatura|C">Temperatura</option>
-          <option value="Galinheiro_A|racao|%">Racao</option>
-          <option value="Galinheiro_A|agua|%">Agua</option>
-        </optgroup>
-      </select>
-      <span id="grafico-label" style="font-size:.78rem;color:#888"></span>
-    </div>
-    <canvas id="grafico" height="70"></canvas>
-  </div>
-
-  <!-- Blocos de alertas: criticos | avisos -->
-  <div class="alertas-grade">
-    <div class="bloco-criticos">
-      <div class="card">
-        <div class="card-title">Alertas Criticos</div>
-        <div id="bloco-criticos-cont"><p class="sem-dados">Nenhum alerta critico.</p></div>
-      </div>
-    </div>
-    <div class="bloco-avisos">
-      <div class="card">
-        <div class="card-title">Avisos</div>
-        <div id="bloco-avisos-cont"><p class="sem-dados">Nenhum aviso ativo.</p></div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Historico de ativacoes e alertas reconhecidos -->
-  <div class="bloco-hist">
-    <div class="card">
-      <div class="card-title">Historico de Ativacoes (24h)</div>
-      <div id="hist-atu-cont"><p class="sem-dados">Carregando...</p></div>
-    </div>
-  </div>
-
+<!-- Faixa de alertas — fica abaixo do header, sempre acessível -->
+<div id="faixa-alertas">
+  <h3>🔴 Alertas Ativos <span onclick="toggleAlertas()">fechar ✕</span></h3>
+  <div id="alertas-lista"></div>
 </div>
 
-<!-- ═══════════════════════ ABA CONFIG ═══════════════════════ -->
-<div id="tab-config" class="tab">
-  <div class="cfg-grid">
+<div class="tabs-wrap">
+  <div class="tab ativo" id="tab-btn-painel"  onclick="mudarTab('painel')">📊 Painel</div>
+  <div class="tab"       id="tab-btn-config"  onclick="mudarTab('config')">⚙️ Configurações</div>
+</div>
 
-    <div class="card">
-      <div class="card-title">Estufa A</div>
+<div class="main">
 
-      <div class="cfg-h3">Bomba de Irrigacao (Umidade)</div>
-      <div class="cfg-row">
-        <span class="cfg-lbl">Ligar abaixo de (%)</span>
-        <input class="cfg-input" type="number" id="cfg-EA-umidade_min" step="1" min="0" max="100">
-      </div>
-      <div class="cfg-row">
-        <span class="cfg-lbl">Desligar acima de (%)</span>
-        <input class="cfg-input" type="number" id="cfg-EA-umidade_max" step="1" min="0" max="100">
-      </div>
-      <div class="cfg-row cfg-crit">
-        <span class="cfg-lbl">Critico abaixo de (%)</span>
-        <input class="cfg-input" type="number" id="cfg-EA-critico_umidade" step="1" min="0" max="100">
+  <!-- ── Painel ── -->
+  <div id="tab-painel" class="tab-content ativo">
+    <div class="painel-grid">
+
+      <!-- Coluna 1: Sensores -->
+      <div>
+        <div class="card">
+          <h2>Nós e Sensores <span class="badge-cnt" id="nos-count"></span></h2>
+          <div class="scroll-inner" id="nos"><div class="muted">Aguardando dados...</div></div>
+        </div>
       </div>
 
-      <div class="cfg-h3">Ventilador (Temperatura)</div>
-      <div class="cfg-row">
-        <span class="cfg-lbl">Ligar acima de (C)</span>
-        <input class="cfg-input" type="number" id="cfg-EA-temp_max" step="0.5" min="0" max="60">
-      </div>
-      <div class="cfg-row cfg-crit">
-        <span class="cfg-lbl">Critico acima de (C)</span>
-        <input class="cfg-input" type="number" id="cfg-EA-critico_temp" step="0.5" min="0" max="60">
+      <!-- Coluna 2: Atuadores -->
+      <div>
+        <div class="card">
+          <h2>Atuadores <span class="badge-cnt" id="atu-count"></span></h2>
+          <div class="scroll-inner" id="atuadores"><div class="muted">Aguardando conexões...</div></div>
+        </div>
       </div>
 
-      <div class="cfg-h3">Painel LED (Luminosidade)</div>
-      <div class="cfg-row">
-        <span class="cfg-lbl">Ligar abaixo de (Lux)</span>
-        <input class="cfg-input" type="number" id="cfg-EA-luz_min" step="10" min="0" max="2000">
-      </div>
-      <div class="cfg-row cfg-crit">
-        <span class="cfg-lbl">Critico abaixo de (Lux)</span>
-        <input class="cfg-input" type="number" id="cfg-EA-critico_luz" step="10" min="0" max="2000">
-      </div>
-
-      <button class="btn-save" onclick="salvarConfig('Estufa_A')">Salvar Estufa A</button>
-    </div>
-
-    <div class="card">
-      <div class="card-title">Galinheiro A</div>
-
-      <div class="cfg-h3">Exaustor (Amonia)</div>
-      <div class="cfg-row">
-        <span class="cfg-lbl">Ligar acima de (ppm)</span>
-        <input class="cfg-input" type="number" id="cfg-GA-amonia_max" step="1" min="0" max="100">
-      </div>
-      <div class="cfg-row cfg-crit">
-        <span class="cfg-lbl">Critico acima de (ppm)</span>
-        <input class="cfg-input" type="number" id="cfg-GA-critico_amonia" step="1" min="0" max="100">
+      <!-- Coluna 3: Gráfico + Velocidade -->
+      <div>
+        <div class="card" style="margin-bottom:12px">
+          <h2>Gráfico</h2>
+          <div class="sel-row">
+            <select id="sensor-select" onchange="trocarSensor()"></select>
+          </div>
+          <div class="grafico-label" id="grafico-label" style="margin-bottom:6px"></div>
+          <canvas id="grafico" height="160"></canvas>
+        </div>
+        <div class="card">
+          <h2>Velocidade UDP</h2>
+          <div id="velocidade" class="vel-mono muted">Carregando...</div>
+        </div>
       </div>
 
-      <div class="cfg-h3">Aquecedor (Temperatura)</div>
-      <div class="cfg-row">
-        <span class="cfg-lbl">Ligar abaixo de (C)</span>
-        <input class="cfg-input" type="number" id="cfg-GA-temp_min" step="0.5" min="0" max="40">
-      </div>
-      <div class="cfg-row cfg-crit">
-        <span class="cfg-lbl">Critico abaixo de (C)</span>
-        <input class="cfg-input" type="number" id="cfg-GA-critico_temp" step="0.5" min="0" max="40">
-      </div>
-
-      <div class="cfg-h3">Motor Comedouro (Racao)</div>
-      <div class="cfg-row">
-        <span class="cfg-lbl">Ligar abaixo de (%)</span>
-        <input class="cfg-input" type="number" id="cfg-GA-racao_min" step="1" min="0" max="100">
-      </div>
-      <div class="cfg-row">
-        <span class="cfg-lbl">Desligar acima de (%)</span>
-        <input class="cfg-input" type="number" id="cfg-GA-racao_max" step="1" min="0" max="100">
-      </div>
-      <div class="cfg-row cfg-crit">
-        <span class="cfg-lbl">Critico abaixo de (%)</span>
-        <input class="cfg-input" type="number" id="cfg-GA-critico_racao" step="1" min="0" max="100">
-      </div>
-
-      <div class="cfg-h3">Valvula de Agua</div>
-      <div class="cfg-row">
-        <span class="cfg-lbl">Ligar abaixo de (%)</span>
-        <input class="cfg-input" type="number" id="cfg-GA-agua_min" step="1" min="0" max="100">
-      </div>
-      <div class="cfg-row">
-        <span class="cfg-lbl">Desligar acima de (%)</span>
-        <input class="cfg-input" type="number" id="cfg-GA-agua_max" step="1" min="0" max="100">
-      </div>
-      <div class="cfg-row cfg-crit">
-        <span class="cfg-lbl">Critico abaixo de (%)</span>
-        <input class="cfg-input" type="number" id="cfg-GA-critico_agua" step="1" min="0" max="100">
-      </div>
-
-      <button class="btn-save" onclick="salvarConfig('Galinheiro_A')">Salvar Galinheiro A</button>
     </div>
   </div>
-</div>
+
+  <!-- ── Configurações ── -->
+  <div id="tab-config" class="tab-content">
+    <p class="muted" style="margin-bottom:12px">Limites por nó. Campos exibidos conforme os tipos de sensor detectados.</p>
+    <div id="cfg-nos"><div class="muted">Aguardando nós...</div></div>
+  </div>
+
+</div><!-- /main -->
 
 <script>
-// WebSocket
+// ── Estado global ─────────────────────────────────────────────────────────────
 let ws = null, wsConectando = false;
-let sensorSel = { node:'Estufa_A', tipo:'umidade', unidade:'%' };
-let sensorChart = null;
+let estadoAtual = {};
 let todosAlertas = [];
+let configAtual  = {};
+let sensorChart  = null;
+let sensorSel    = {node:'', alias:'', tipo:''};
+let alertasFaixaAberta = false;
 
-function conectarWS() {
-  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  ws = new WebSocket(proto + '://' + location.host + '/ws');
-  setWS('rec', 'Conectando...');
-  ws.onopen  = () => { setWS('on', 'Conectado'); wsConectando = false; };
-  ws.onmessage = ev => {
-    try {
-      const m = JSON.parse(ev.data);
-      if (m.tipo === 'estado') receberEstado(m.dados);
-      if (m.tipo === 'alerta') receberAlertas(m.dados);
-    } catch(e) {}
-  };
-  ws.onclose = () => {
-    setWS('off', 'Desconectado');
-    if (!wsConectando) { wsConectando = true; setTimeout(conectarWS, 3000); }
-  };
-  ws.onerror = () => setWS('off', 'Erro');
+// Ordem de descoberta (estável — nunca re-ordenada pelo sort)
+let nosOrdem = [];   // nodeIDs na ordem que apareceram
+let atuOrdem = {};   // nodeID -> [atuador_ids] na ordem que apareceram
+
+// ── Tabs ──────────────────────────────────────────────────────────────────────
+function mudarTab(id) {
+  ['painel','config'].forEach(t => {
+    document.getElementById('tab-' + t).classList.toggle('ativo', t === id);
+    document.getElementById('tab-btn-' + t).classList.toggle('ativo', t === id);
+  });
+  if (id === 'config') renderConfig();
 }
 
+// ── WebSocket ─────────────────────────────────────────────────────────────────
 function setWS(s, t) {
-  const el = document.getElementById('status-ws');
-  el.textContent = t; el.className = {on:'ws-on',off:'ws-off',rec:'ws-rec'}[s]||'ws-off';
+  const el = document.getElementById('ws-badge');
+  el.textContent = t;
+  el.className = {on:'ws-on',off:'ws-off',rec:'ws-rec'}[s] || 'ws-off';
 }
-
 function wsSend(o) {
   if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(o));
 }
-
-// Navegacao
-function aba(nome) {
-  document.querySelectorAll('.tab').forEach(t => t.classList.remove('ativo'));
-  document.querySelectorAll('nav button').forEach(b => b.classList.remove('ativo'));
-  document.getElementById('tab-' + nome).classList.add('ativo');
-  document.querySelectorAll('nav button')[nome==='principal'?0:1].classList.add('ativo');
-  if (nome === 'config') carregarConfig();
+function conectarWS() {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  ws = new WebSocket(proto + '://' + location.host + '/ws');
+  setWS('rec','Conectando...');
+  ws.onopen  = () => { wsConectando = false; setWS('on','Conectado'); };
+  ws.onmessage = ev => {
+    try {
+      const m = JSON.parse(ev.data);
+      if (m.tipo === 'estado') receberEstado(m.dados || {});
+      if (m.tipo === 'alerta') { todosAlertas = Array.isArray(m.dados) ? m.dados : []; renderAlertas(); }
+      if (m.tipo === 'comando_resultado') tratarResultadoComando(m.dados || {});
+    } catch(e){}
+  };
+  ws.onclose = () => {
+    setWS('off','Desconectado');
+    if (!wsConectando) { wsConectando = true; setTimeout(conectarWS, 2500); }
+  };
+  ws.onerror = () => setWS('off','Erro');
 }
 
-// Atualiza estado de sensores e atuadores.
+// ── Ordem de descoberta ───────────────────────────────────────────────────────
+function registrarOrdem(d) {
+  Object.keys(d).forEach(nid => {
+    if (!nosOrdem.includes(nid)) nosOrdem.push(nid);
+    const atus = Array.isArray((d[nid]||{})._atuadores) ? d[nid]._atuadores : [];
+    if (!atuOrdem[nid]) atuOrdem[nid] = [];
+    atus.forEach(a => {
+      if (!atuOrdem[nid].includes(a.atuador_id)) atuOrdem[nid].push(a.atuador_id);
+    });
+  });
+}
+
+// ── Receber estado ────────────────────────────────────────────────────────────
 function receberEstado(d) {
-  if (!d) return;
+  estadoAtual = d || {};
+  registrarOrdem(estadoAtual);
+  renderNos();
+  renderAtuadores();
+  atualizarSelectSensores();
+  // Atualiza gráfico do sensor selecionado
+  const node = estadoAtual[sensorSel.node] || {};
+  const s = (Array.isArray(node._sensores) ? node._sensores : []).find(x => x.alias === sensorSel.alias);
+  if (s) addPonto(s.valor);
+}
 
-  // Estufa A
-  if (d.Estufa_A) {
-    setText('ea-umidade', d.Estufa_A.umidade);
-    setText('ea-temp',    d.Estufa_A.temperatura);
-    setText('ea-luz',     d.Estufa_A.luminosidade);
-    setBadge('st-bomba',      d.Estufa_A.bomba_ligada);
-    setBadge('st-ventilador', d.Estufa_A.ventilador_ligado);
-    setBadge('st-led',        d.Estufa_A.led_ligado);
+// ── Sensores (ordem de descoberta) ───────────────────────────────────────────
+function renderNos() {
+  const cont = document.getElementById('nos');
+  // Filtra os nós que estão na ordem de descoberta E que possuem dados no estado atual
+  const nodes = nosOrdem.filter(nid => estadoAtual[nid]);
+  
+  document.getElementById('nos-count').textContent = nodes.length ? '(' + nodes.length + ' nós)' : '';
+  
+  if (!nodes.length) { 
+    cont.innerHTML = '<div class="muted">Aguardando dados...</div>'; 
+    return; 
   }
 
-  // Galinheiro A
-  if (d.Galinheiro_A) {
-    setText('ga-amonia', d.Galinheiro_A.amonia);
-    setText('ga-temp',   d.Galinheiro_A.temperatura);
-    setText('ga-racao',  d.Galinheiro_A.racao);
-    setText('ga-agua',   d.Galinheiro_A.agua);
-    setBadge('st-exaustor',  d.Galinheiro_A.exaustor_ligado);
-    setBadge('st-aquecedor', d.Galinheiro_A.aquecedor_ligado);
-    setBadge('st-motor',     d.Galinheiro_A.motor_ligado);
-    setBadge('st-valvula',   d.Galinheiro_A.valvula_ligada);
+  cont.innerHTML = nodes.map(nid => {
+    const nodeData = estadoAtual[nid] || {};
+    const sens = Array.isArray(nodeData._sensores) ? nodeData._sensores : [];
+    
+    // IMPORTANTE: Ordenar os sensores internamente pelo ID para que não pulem dentro do card
+    const sensOrdenados = [...sens].sort((a, b) => a.sensor_id.localeCompare(b.sensor_id));
+
+    const rows = sensOrdenados.length
+      ? sensOrdenados.map(s =>
+          '<div class="sensor-row">'
+          + '<div><span class="s-alias">' + s.alias + '</span> <span class="s-id">(' + s.sensor_id + ')</span></div>'
+          + '<div><span class="s-val">' + Number(s.valor||0).toFixed(2) + '</span><span class="s-unit">' + (s.unidade||'') + '</span></div>'
+          + '</div>').join('')
+      : '<div class="muted" style="font-size:.73rem;padding:3px 0">Sem sensores ativos</div>';
+
+    return '<div class="no"><div class="no-head"><div class="no-id">📍 ' + nid + '</div>'
+         + '<span class="muted">' + sens.length + ' sensor(es)</span></div>' + rows + '</div>';
+  }).join('');
+}
+
+// ── Atuadores (ordem de descoberta, agrupados por nó) ────────────────────────
+function renderAtuadores() {
+  const cont = document.getElementById('atuadores');
+  const nodes = nosOrdem.filter(nid => estadoAtual[nid] && atuOrdem[nid] && atuOrdem[nid].length);
+  let total = 0;
+
+  if (!nodes.length) {
+    document.getElementById('atu-count').textContent = '';
+    cont.innerHTML = '<div class="muted">Nenhum atuador detectado.</div>';
+    return;
   }
 
-  // Grafico — adiciona ponto do sensor selecionado
-  const node = d[sensorSel.node];
-  if (node) {
-    const v = node[sensorSel.tipo];
-    if (v !== undefined) addPonto(v);
-  }
+  cont.innerHTML = nodes.map(nid => {
+    const atuMap = {};
+    ((estadoAtual[nid]||{})._atuadores || []).forEach(a => atuMap[a.atuador_id] = a);
+
+    const rows = atuOrdem[nid].map(aid => {
+      const a = atuMap[aid];
+      if (!a) return '';
+      total++;
+      const online = !!a.conectado;
+      const ligado  = !!a.ligado;
+      const dis     = online ? '' : 'disabled';
+      const stConn  = online
+        ? '<span class="st st-online">ON</span>'
+        : '<span class="st st-offline">OFF</span>';
+      const stEst   = ligado
+        ? '<span class="st st-on">LIGADO</span>'
+        : '<span class="st st-desl">DESL.</span>';
+      return '<div class="atu-row">'
+        + '<div class="atu-info"><div class="atu-name">' + a.atuador_id + '</div>'
+        + '<div class="atu-tipo">' + (a.tipo||'') + '</div></div>'
+        + '<div class="atu-ctrl">' + stConn + stEst
+        + '<button class="btn btn-on" ' + dis + ' onclick="cmd(\'' + nid + '\',\'' + a.atuador_id + '\',\'LIGAR\')">▲</button>'
+        + '<button class="btn btn-off" ' + dis + ' onclick="cmd(\'' + nid + '\',\'' + a.atuador_id + '\',\'DESLIGAR\')">▼</button>'
+        + '</div></div>';
+    }).join('');
+
+    return '<div class="atu-no"><div class="atu-no-title">📍 ' + nid + '</div>' + rows + '</div>';
+  }).join('');
+
+  document.getElementById('atu-count').textContent = total ? '(' + total + ')' : '';
 }
 
-function setText(id, v) {
-  const el = document.getElementById(id);
-  if (el) el.textContent = (v !== undefined && v !== null) ? parseFloat(v).toFixed(1) : '--';
+function cmd(nodeID, atuadorID, comando) {
+  wsSend({tipo:'comando', node_id:nodeID, atuador_id:atuadorID, comando});
 }
 
-function setBadge(id, on) {
-  const el = document.getElementById(id);
-  if (!el) return;
-  el.textContent = on ? 'LIGADO' : 'DESLIG.';
-  el.className = 'st ' + (on ? 'st-on' : 'st-off');
+function tratarResultadoComando(dados) {
+  if (!dados || dados.ok !== false) return;
+  const alvo = (dados.node_id || '?') + '/' + (dados.atuador_id || '?');
+  const cmd  = dados.comando || 'COMANDO';
+  const erro = dados.erro || 'falha_desconhecida';
+  alert('Falha ao enviar ' + cmd + ' para ' + alvo + ': ' + erro);
 }
 
-// Alertas separados em criticos e avisos.
-function receberAlertas(dados) {
-  if (!Array.isArray(dados)) return;
-  todosAlertas = dados;
-  renderAlertas();
+// ── Gráfico ───────────────────────────────────────────────────────────────────
+function atualizarSelectSensores() {
+  const sel = document.getElementById('sensor-select');
+  const current = sensorSel.node + '|' + sensorSel.alias;
+  const opts = [];
+  nosOrdem.filter(nid => estadoAtual[nid]).forEach(nid => {
+    const sens = Array.isArray((estadoAtual[nid]||{})._sensores) ? estadoAtual[nid]._sensores : [];
+    sens.forEach(s => opts.push({value:nid+'|'+s.alias+'|'+s.tipo, label:nid+' / '+s.alias, node:nid, alias:s.alias}));
+  });
+  const prevLen = sel.options.length;
+  sel.innerHTML = opts.map(o => '<option value="'+o.value+'">'+o.label+'</option>').join('');
+  if (!opts.length) return;
+  const idx = opts.findIndex(o => (o.node+'|'+o.alias) === current);
+  sel.selectedIndex = idx >= 0 ? idx : 0;
+  // Só troca o gráfico se o sensor mudou (preserva histórico)
+  if (idx < 0 || prevLen === 0) trocarSensor();
 }
 
-function renderAlertas() {
-  const ativos   = todosAlertas.filter(a => !a.ack);
-  const criticos = ativos.filter(a => a.nivel === 'critico').reverse();
-  const avisos   = ativos.filter(a => a.nivel !== 'critico').reverse();
-
-  const cC = document.getElementById('bloco-criticos-cont');
-  cC.innerHTML = criticos.length === 0
-    ? '<p class="sem-dados">Nenhum alerta critico.</p>'
-    : criticos.map(a => renderAlerta(a)).join('');
-
-  const cA = document.getElementById('bloco-avisos-cont');
-  cA.innerHTML = avisos.length === 0
-    ? '<p class="sem-dados">Nenhum aviso ativo.</p>'
-    : avisos.map(a => renderAlerta(a)).join('');
+function trocarSensor() {
+  const sel = document.getElementById('sensor-select');
+  if (!sel || !sel.value) return;
+  const p = sel.value.split('|');
+  const novoSel = {node:p[0], alias:p[1], tipo:p[2]};
+  if (novoSel.node === sensorSel.node && novoSel.alias === sensorSel.alias) return;
+  sensorSel = novoSel;
+  document.getElementById('grafico-label').textContent = sensorSel.node + ' › ' + sensorSel.alias;
+  criarGrafico();
 }
-
-function renderAlerta(a) {
-  const t   = new Date(a.timestamp).toLocaleString('pt-BR');
-  const cls = a.ack ? 'al-ack' : (a.nivel==='critico' ? 'al-critico' : 'al-aviso');
-  const nlC = a.ack ? 'nl-ack' : (a.nivel==='critico' ? 'nl-critico' : 'nl-aviso');
-  const nlT = a.ack ? 'ACK' : a.nivel.toUpperCase();
-  const btn = !a.ack ? '<button class="btn-ack" onclick="ackAlerta(\''+a.id+'\')">Reconhecer</button>' : '';
-  return '<div class="alerta '+cls+'">'
-    +'<span class="al-nivel '+nlC+'">'+nlT+'</span>'
-    +'<div class="al-body"><div class="al-msg">'+a.mensagem+'</div>'
-    +'<div class="al-meta">'+a.node_id+' / '+a.tipo+' = '+a.valor.toFixed(1)+' — '+t+'</div></div>'
-    +btn+'</div>';
-}
-
-function ackAlerta(id) {
-  wsSend({ tipo:'ack_alerta', id });
-}
-
-// Grafico
-const cores = {
-  umidade:'#3498db', temperatura:'#e74c3c', luminosidade:'#f39c12',
-  amonia:'#9b59b6', racao:'#e67e22', agua:'#1abc9c'
-};
 
 function criarGrafico() {
-  if (sensorChart) { sensorChart.destroy(); sensorChart = null; }
+  if (sensorChart) sensorChart.destroy();
   const ctx = document.getElementById('grafico').getContext('2d');
-  const cor = cores[sensorSel.tipo] || '#555';
-  document.getElementById('grafico-label').textContent =
-    sensorSel.node + ' / ' + sensorSel.tipo + ' (' + sensorSel.unidade + ')';
   sensorChart = new Chart(ctx, {
-    type: 'line',
-    data: {
-      labels: [],
-      datasets: [{ label: sensorSel.tipo, borderColor: cor, backgroundColor: cor+'15',
-        data:[], fill:true, tension:0.3, pointRadius:1.5 }]
-    },
-    options: {
-      animation: false, responsive: true,
-      scales: {
-        x: { ticks:{ maxTicksLimit:10, maxRotation:0 } },
-        y: { beginAtZero: false }
-      },
-      plugins: { legend:{ display:false } }
+    type:'line',
+    data:{labels:[], datasets:[{
+      data:[], borderColor:'#2d8f6a', backgroundColor:'rgba(45,143,106,.12)',
+      fill:true, tension:0.3, pointRadius:1.2, borderWidth:1.8
+    }]},
+    options:{
+      animation:false,
+      plugins:{legend:{display:false}},
+      scales:{
+        x:{ticks:{maxTicksLimit:6,maxRotation:0,font:{size:10}}},
+        y:{ticks:{font:{size:10}}}
+      }
     }
   });
 }
 
 function addPonto(v) {
   if (!sensorChart) return;
-  const h = new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
-  sensorChart.data.labels.push(h);
+  sensorChart.data.labels.push(new Date().toLocaleTimeString('pt-BR'));
   sensorChart.data.datasets[0].data.push(v);
-  if (sensorChart.data.labels.length > 60) {
+  if (sensorChart.data.labels.length > 90) {
     sensorChart.data.labels.shift();
     sensorChart.data.datasets[0].data.shift();
   }
-  sensorChart.update();
+  sensorChart.update('none');
 }
 
-async function trocarSensor() {
-  const v = document.getElementById('sensor-select').value.split('|');
-  sensorSel = { node:v[0], tipo:v[1], unidade:v[2] };
-  criarGrafico();
-  // Carrega historico via HTTP
+// ── Alertas ───────────────────────────────────────────────────────────────────
+function toggleAlertas() {
+  alertasFaixaAberta = !alertasFaixaAberta;
+  document.getElementById('faixa-alertas').classList.toggle('visivel', alertasFaixaAberta);
+}
+
+function renderAlertas() {
+  const ativos = (todosAlertas||[]).filter(a => !a.ack).slice(-15).reverse();
+  const badge  = document.getElementById('alerta-badge');
+  const lista  = document.getElementById('alertas-lista');
+
+  // Badge no header
+  if (ativos.length) {
+    badge.textContent = ativos.length + ' alerta' + (ativos.length > 1 ? 's' : '');
+    badge.style.display = 'inline';
+    // Abre automaticamente se há alertas críticos
+    const temCrit = ativos.some(a => a.nivel === 'critico');
+    if (temCrit && !alertasFaixaAberta) {
+      alertasFaixaAberta = true;
+      document.getElementById('faixa-alertas').classList.add('visivel');
+    }
+  } else {
+    badge.style.display = 'none';
+    alertasFaixaAberta = false;
+    document.getElementById('faixa-alertas').classList.remove('visivel');
+  }
+
+  lista.innerHTML = ativos.map(a =>
+    '<div class="alerta-item' + (a.nivel === 'critico' ? ' crit' : '') + '">'
+    + '<b>' + a.nivel.toUpperCase() + ':</b> ' + a.mensagem
+    + '<div class="alerta-meta">' + a.node_id + ' / ' + a.tipo
+    + ' — ' + new Date(a.timestamp).toLocaleString('pt-BR') + '</div>'
+    + '</div>'
+  ).join('');
+}
+
+// ── Velocidade ────────────────────────────────────────────────────────────────
+async function atualizarVelocidade() {
   try {
-    const r = await fetch('/api/sensor/'+sensorSel.tipo+'?horas=1');
-    const dados = await r.json();
-    if (!Array.isArray(dados) || !sensorChart) return;
-    const filtrado = dados.filter(d => d.node_id === sensorSel.node).reverse().slice(-60);
-    sensorChart.data.labels = filtrado.map(d =>
-      new Date(d.timestamp).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit',second:'2-digit'})
-    );
-    sensorChart.data.datasets[0].data = filtrado.map(d => d.valor);
-    sensorChart.update();
-  } catch(e) {}
+    const v = await fetch('/api/velocidade').then(r => r.json());
+    document.getElementById('velocidade').innerHTML =
+      'Total datagramas: <b>' + (v.total_datagramas||0) + '</b><br>'
+      + 'JSON inválido: <b>' + (v.total_invalidos_json||0) + '</b><br>'
+      + 'Último pacote: ' + (v.ultimo_datagrama||'—') + '<br>'
+      + 'Últ. inválido: ' + (v.ultimo_invalido_json||'—') + '<br>'
+      + 'Trace terminal: ' + (v.trace_terminal ? '🟢 ON' : '⚫ OFF');
+  } catch(e){}
 }
 
-// Historico de ativacoes (inicial e a cada 30s).
-const nomeAtu = {
-  'bomba_irrigacao_01':'Bomba Irrigacao','ventilador_01':'Ventilador',
-  'painel_led_01':'Painel LED','exaustor_teto_01':'Exaustor',
-  'aquecedor_01':'Aquecedor','motor_comedouro_01':'Motor Comedouro',
-  'valvula_agua_01':'Valvula Agua'
+// ── Configurações ─────────────────────────────────────────────────────────────
+// Campos por tipo de sensor — cada tipo tem sua própria seção
+const CFG = {
+  umidade:     [{key:'umidade_min',     label:'Umidade mín (%)'},
+                {key:'umidade_max',     label:'Umidade máx (%)'},
+                {key:'critico_umidade', label:'Crítico mín (%)'}],
+  luminosidade:[{key:'luz_min',         label:'Luz mín (Lux)'},
+                {key:'critico_luz',     label:'Crítico luz (Lux)'}],
+  amonia:      [{key:'amonia_max',      label:'Amônia máx (ppm)'},
+                {key:'critico_amonia',  label:'Crítico (ppm)'}],
+  racao:       [{key:'racao_min',       label:'Ração mín (%)'},
+                {key:'racao_max',       label:'Ração máx (%)'},
+                {key:'critico_racao',   label:'Crítico (%)'}],
+  agua:        [{key:'agua_min',        label:'Água mín (%)'},
+                {key:'agua_max',        label:'Água máx (%)'},
+                {key:'critico_agua',    label:'Crítico (%)'}],
 };
 
-async function carregarHistAtu() {
-  const c = document.getElementById('hist-atu-cont');
-  try {
-    const r = await fetch('/api/atuador/history?horas=24');
-    const d = await r.json();
-    if (!Array.isArray(d) || d.length === 0) {
-      c.innerHTML = '<p class="sem-dados">Nenhuma ativacao nas ultimas 24h.</p>'; return;
-    }
-    const rows = d.slice(0, 80).map(x => {
-      const t  = new Date(x.timestamp).toLocaleString('pt-BR');
-      const nm = nomeAtu[x.atuador] || x.atuador;
-      const bg = x.acao === 'LIGAR' ? '#e8f8ed' : '#fdecea';
-      return '<tr style="background:'+bg+'"><td>'+t+'</td><td>'+x.node_id+'</td>'
-           + '<td>'+nm+'</td><td><b>'+x.acao+'</b></td><td>'+(x.motivo||'-')+'</td></tr>';
-    }).join('');
-    c.innerHTML = '<table><thead><tr><th>Hora</th><th>Node</th><th>Atuador</th>'
-      +'<th>Acao</th><th>Motivo</th></tr></thead><tbody>'+rows+'</tbody></table>';
-  } catch(e) { c.innerHTML = '<p class="sem-dados">Erro.</p>'; }
+// Temperatura: campos dependem dos atuadores presentes no nó
+function camposTemp(nodeID) {
+  const atus  = ((estadoAtual[nodeID]||{})._atuadores)||[];
+  const tipos = atus.map(a => (a.tipo||'').toLowerCase());
+  const temV  = tipos.some(t => t.includes('ventilador'));
+  const temA  = tipos.some(t => t.includes('aquecedor'));
+  const campos = [];
+  if (temV || !temA) campos.push({key:'temp_max', label:'Temp máx (°C)'});
+  if (temA || !temV) campos.push({key:'temp_min', label:'Temp mín (°C)'});
+  if (campos.length) campos.push({key:'critico_temp', label:'Crítico (°C)'});
+  return campos;
 }
 
-// Comandos de atuadores.
-function cmd(nodeID, atuadorID, comando) {
-  wsSend({ tipo:'comando', node_id:nodeID, atuador_id:atuadorID, comando });
+function tiposDoNo(nodeID) {
+  const sens = ((estadoAtual[nodeID]||{})._sensores)||[];
+  const visto = new Set();
+  return sens.map(s => s.tipo).filter(t => { if(visto.has(t)) return false; visto.add(t); return true; });
 }
 
-// Configuracoes.
 async function carregarConfig() {
-  try {
-    const r = await fetch('/api/config');
-    const c = await r.json();
-    if (!c) return;
-    const ea = c.Estufa_A || {}, ga = c.Galinheiro_A || {};
-    si('cfg-EA-umidade_min',    ea.umidade_min);
-    si('cfg-EA-umidade_max',    ea.umidade_max);
-    si('cfg-EA-temp_max',       ea.temp_max);
-    si('cfg-EA-luz_min',        ea.luz_min);
-    si('cfg-EA-critico_umidade',ea.critico_umidade);
-    si('cfg-EA-critico_temp',   ea.critico_temp);
-    si('cfg-EA-critico_luz',    ea.critico_luz);
-    si('cfg-GA-amonia_max',     ga.amonia_max);
-    si('cfg-GA-critico_amonia', ga.critico_amonia);
-    si('cfg-GA-temp_min',       ga.temp_min);
-    si('cfg-GA-critico_temp',   ga.critico_temp);
-    si('cfg-GA-racao_min',      ga.racao_min);
-    si('cfg-GA-racao_max',      ga.racao_max);
-    si('cfg-GA-critico_racao',  ga.critico_racao);
-    si('cfg-GA-agua_min',       ga.agua_min);
-    si('cfg-GA-agua_max',       ga.agua_max);
-    si('cfg-GA-critico_agua',   ga.critico_agua);
-  } catch(e) {}
+  try { configAtual = await fetch('/api/config').then(r => r.json()) || {}; } catch(e){}
 }
 
-function si(id, v) {
-  const el = document.getElementById(id);
-  if (el && v !== undefined) el.value = v;
+function renderConfig() {
+  const cont  = document.getElementById('cfg-nos');
+  const nodes = nosOrdem.filter(nid => estadoAtual[nid]);
+  if (!nodes.length) { cont.innerHTML = '<div class="muted">Nenhum nó descoberto ainda.</div>'; return; }
+
+  cont.innerHTML = nodes.map(nodeID => {
+    const cfg   = configAtual[nodeID] || {};
+    const tipos = tiposDoNo(nodeID);
+    if (!tipos.length) {
+      return '<div class="cfg-node"><div class="cfg-node-title">📍 ' + nodeID + '</div>'
+        + '<div class="muted">Nenhum sensor ativo neste nó ainda.</div></div>';
+    }
+
+    const secoes = tipos.map(tipo => {
+      const campos = tipo === 'temperatura' ? camposTemp(nodeID) : (CFG[tipo]||[]);
+      if (!campos.length) return '';
+      const fields = '<div class="cfg-grid">'
+        + campos.map(c => {
+            const val = cfg[c.key] !== undefined ? cfg[c.key] : '';
+            return '<div class="cfg-field"><label>' + c.label + '</label>'
+              + '<input type="number" step="0.1" id="cfg_'+nodeID+'_'+c.key+'" value="'+val+'"></div>';
+          }).join('')
+        + '</div>';
+      return '<div class="cfg-section"><div class="cfg-sec-title">📌 ' + tipo + '</div>' + fields + '</div>';
+    }).join('');
+
+    return '<div class="cfg-node">'
+      + '<div class="cfg-node-title">📍 ' + nodeID + '</div>'
+      + secoes
+      + '<button class="cfg-save" onclick="salvarConfig(\''+nodeID+'\')">💾 Salvar ' + nodeID + '</button>'
+      + '</div>';
+  }).join('');
 }
 
 function salvarConfig(nodeID) {
-  const p = nodeID === 'Estufa_A' ? 'cfg-EA-' : 'cfg-GA-';
-  const campos = nodeID === 'Estufa_A'
-    ? ['umidade_min','umidade_max','temp_max','luz_min','critico_umidade','critico_temp','critico_luz']
-    : ['amonia_max','critico_amonia','temp_min','critico_temp','racao_min','racao_max','critico_racao','agua_min','agua_max','critico_agua'];
+  const tipos = tiposDoNo(nodeID);
   const dados = {};
-  let ok = true;
-  campos.forEach(c => {
-    const el = document.getElementById(p + c);
-    if (el && el.value !== '') {
-      const v = parseFloat(el.value);
-      if (isNaN(v)) { ok = false; return; }
-      dados[c] = v;
-    }
+  tipos.forEach(tipo => {
+    const campos = tipo === 'temperatura' ? camposTemp(nodeID) : (CFG[tipo]||[]);
+    campos.forEach(c => {
+      const el = document.getElementById('cfg_'+nodeID+'_'+c.key);
+      if (el && el.value !== '') dados[c.key] = parseFloat(el.value);
+    });
   });
-  if (!ok) { alert('Valores invalidos.'); return; }
-  wsSend({ tipo:'config', node_id:nodeID, dados });
-  alert('Configuracoes enviadas!');
+  if (!Object.keys(dados).length) return;
+  wsSend({tipo:'config', node_id:nodeID, dados});
+  configAtual[nodeID] = Object.assign(configAtual[nodeID]||{}, dados);
+  const btn = document.querySelector('[onclick="salvarConfig(\''+nodeID+'\')"]');
+  if (btn) { const o = btn.textContent; btn.textContent = '✓ Salvo!'; setTimeout(() => btn.textContent = o, 1800); }
 }
 
-// Inicializacao da pagina.
+// ── Init ──────────────────────────────────────────────────────────────────────
+async function init() {
+  try { receberEstado(await fetch('/api/estado').then(r => r.json())); } catch(e){}
+  try {
+    todosAlertas = await fetch('/api/alertas?ativos=true').then(r => r.json());
+    if (!Array.isArray(todosAlertas)) todosAlertas = [];
+    renderAlertas();
+  } catch(e){}
+  await carregarConfig();
+  await atualizarVelocidade();
+}
+
 criarGrafico();
-trocarSensor();
-carregarHistAtu();
-
-// Carrega alertas iniciais via HTTP.
-fetch('/api/alertas').then(r => r.json()).then(d => {
-  if (Array.isArray(d)) { todosAlertas = d; renderAlertas(); }
-}).catch(() => {});
-
-// Recarrega historico a cada 30s.
-setInterval(carregarHistAtu, 30000);
-
+init();
+setInterval(atualizarVelocidade, 2000);
+setInterval(carregarConfig, 15000);
 conectarWS();
 </script>
 </body>

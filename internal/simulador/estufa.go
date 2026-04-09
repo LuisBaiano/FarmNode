@@ -16,24 +16,24 @@ import (
 	"FarmNode/internal/models"
 )
 
-// Estado local dos atuadores da estufa.
+// Estado local dos atuadores da estufa para simulação física.
 // Atualizado via GET /api/estado a cada 200ms.
-// Necessario porque em Docker cada sensor roda em container separado
-// e nao compartilha memoria com o servidor.
-// Importante: sensores enviam apenas dados crus.
-// A interpretacao e feita no servidor.
-// O sensor nao registra eventos.
-
+// Detecta atuadores pelo prefixo do tipo: "bomba", "ventilador", "led".
 var (
-	estufaEstadoMu   sync.RWMutex
-	estufaBomba      = map[string]bool{}
-	estufaVentilador = map[string]bool{}
-	estufaLed        = map[string]bool{}
+	estufaEstadoMu sync.RWMutex
+	// node_id -> tipo_prefixo -> ligado
+	estufaEstado = map[string]map[string]bool{}
 )
 
-// Simula a estufa e envia dados via UDP a cada 1ms.
-// O sensor apenas simula e envia os valores.
-// O servidor decide os acionamentos.
+func estufaLigado(nodeID, prefixo string) bool {
+	estufaEstadoMu.RLock()
+	defer estufaEstadoMu.RUnlock()
+	if m, ok := estufaEstado[nodeID]; ok {
+		return m[prefixo]
+	}
+	return false
+}
+
 func IniciarSensorEstufa(nodeID, sensorID, tipo, serverAddr, unidade string) {
 	serverIP := os.Getenv("SERVER_IP")
 	if serverIP == "" {
@@ -44,14 +44,12 @@ func IniciarSensorEstufa(nodeID, sensorID, tipo, serverAddr, unidade string) {
 	}
 
 	httpBase := deriveHTTPBase(serverIP)
-
-	// Consulta estado dos atuadores a cada 200ms via HTTP
-	// (estado e gerenciado pelo servidor, nao pelo sensor)
-	go pollEstadoEstufa(httpBase, nodeID)
+	pollEvery := envDurationMS("ATUADOR_POLL_MS", 1000, 100, 10000)
+	go pollEstadoEstufa(httpBase, nodeID, pollEvery)
 
 	enderecoServidor, err := net.ResolveUDPAddr("udp", serverIP)
 	if err != nil {
-		logger.Sensor.Fatalf("[%s/%s] Endereco UDP invalido: %v", nodeID, sensorID, err)
+		logger.Sensor.Fatalf("[%s/%s] Endereço UDP inválido: %v", nodeID, sensorID, err)
 	}
 	conn, err := net.DialUDP("udp", nil, enderecoServidor)
 	if err != nil {
@@ -59,7 +57,8 @@ func IniciarSensorEstufa(nodeID, sensorID, tipo, serverAddr, unidade string) {
 	}
 	defer conn.Close()
 
-	logger.Sensor.Printf("[%s/%s] Enviando dados UDP -> %s (1ms)", nodeID, sensorID, serverIP)
+	sendEvery := envDurationMS("SENSOR_INTERVAL_MS", 1, 1, 1000)
+	logger.Sensor.Printf("[%s/%s] Enviando UDP -> %s (%s)", nodeID, sensorID, serverIP, sendEvery)
 
 	var valorAtual float64
 	switch tipo {
@@ -72,17 +71,11 @@ func IniciarSensorEstufa(nodeID, sensorID, tipo, serverAddr, unidade string) {
 	}
 
 	for {
-		estufaEstadoMu.RLock()
-		bombaLigada := estufaBomba[nodeID]
-		ventiladorLigado := estufaVentilador[nodeID]
-		ledLigado := estufaLed[nodeID]
-		estufaEstadoMu.RUnlock()
+		bombaLigada := estufaLigado(nodeID, "bomba")
+		ventiladorLigado := estufaLigado(nodeID, "ventilador")
+		ledLigado := estufaLigado(nodeID, "led")
 
-		// Simulacao fisica do ambiente.
-		// Eventos aleatorios afetam o valor.
-		// Anomalias sao detectadas no servidor.
 		switch tipo {
-
 		case "umidade":
 			if bombaLigada {
 				valorAtual += 0.005 + rand.Float64()*0.004
@@ -108,30 +101,21 @@ func IniciarSensorEstufa(nodeID, sensorID, tipo, serverAddr, unidade string) {
 
 		case "luminosidade":
 			if ledLigado {
-				// LED ligado: luz artificial estavel.
 				alvo := 800.0
 				valorAtual += (alvo - valorAtual) * 0.05
 				valorAtual += (rand.Float64() - 0.5) * 8.0
 			} else {
-				// Ciclo dia/noite com periodo de 120s.
-				// Usa seno baseado no tempo real para que todos os sensores
-				// fiquem sincronizados no mesmo "horario do dia".
-				// Pico (meio-dia): ~750 Lux  |  Vale (meia-noite): ~0 Lux
-				// Limiar de ativacao LED: 300 Lux → LED liga por ~36s em cada ciclo.
 				periodoMs := int64(120000)
 				tMs := time.Now().UnixNano() / 1e6
-				fase := float64(tMs%periodoMs) / float64(periodoMs) // 0.0 a 1.0
+				fase := float64(tMs%periodoMs) / float64(periodoMs)
 				luzSolar := 750.0 * math.Sin(math.Pi*fase)
-				// Variacao suave de nuvens.
 				nuvens := 20.0 * math.Sin(float64(tMs)/3000.0)
 				alvo := clamp(luzSolar+nuvens, 0, 800)
-				// Transicao suave para o valor alvo.
 				valorAtual += (alvo - valorAtual) * 0.008
 				valorAtual = clamp(valorAtual, 0, 800)
 			}
 		}
 
-		// Envia dado cru via UDP.
 		dadosJSON, err := json.Marshal(models.MensagemSensor{
 			NodeID:        nodeID,
 			SensorID:      sensorID,
@@ -146,12 +130,13 @@ func IniciarSensorEstufa(nodeID, sensorID, tipo, serverAddr, unidade string) {
 			conn.Write(dadosJSON)
 		}
 
-		time.Sleep(1 * time.Millisecond)
+		time.Sleep(sendEvery)
 	}
 }
 
-// Consulta o estado dos atuadores a cada 200ms.
-func pollEstadoEstufa(httpBase, nodeID string) {
+// pollEstadoEstufa consulta /api/estado e extrai o estado dos atuadores
+// pelo prefixo do tipo, sem depender de IDs fixos.
+func pollEstadoEstufa(httpBase, nodeID string, pollEvery time.Duration) {
 	client := &http.Client{Timeout: 2 * time.Second}
 	for {
 		func() {
@@ -164,21 +149,58 @@ func pollEstadoEstufa(httpBase, nodeID string) {
 			if err != nil {
 				return
 			}
-			var estado map[string]map[string]interface{}
+
+			// estado: node_id -> { _atuadores: [{atuador_id, conectado}, ...], ... }
+			var estado map[string]json.RawMessage
 			if err := json.Unmarshal(body, &estado); err != nil {
 				return
 			}
-			node, ok := estado[nodeID]
+			nodeRaw, ok := estado[nodeID]
 			if !ok {
 				return
 			}
+			var nodeData struct {
+				Atuadores []struct {
+					AtuadorID string `json:"atuador_id"`
+					Ligado    bool   `json:"ligado"`
+				} `json:"_atuadores"`
+			}
+			if err := json.Unmarshal(nodeRaw, &nodeData); err != nil {
+				return
+			}
+
+			// Detecta estado por prefixo do atuador_id
+			novo := map[string]bool{}
+			for _, a := range nodeData.Atuadores {
+				tipo := tipoAtuadorID(a.AtuadorID)
+				if tipo == "" {
+					continue
+				}
+				novo[tipo] = novo[tipo] || a.Ligado
+			}
+
+			// Tenta ler campos "atu_*" do nodeData para estado ON/OFF
+			var nodeMap map[string]json.RawMessage
+			if err := json.Unmarshal(nodeRaw, &nodeMap); err == nil {
+				for k, v := range nodeMap {
+					if strings.HasPrefix(k, "atu_") {
+						var ligado bool
+						json.Unmarshal(v, &ligado)
+						// extrai prefixo do atuador_id
+						atuID := strings.TrimPrefix(k, "atu_")
+						tipo := tipoAtuadorID(atuID)
+						if tipo != "" {
+							novo[tipo] = ligado
+						}
+					}
+				}
+			}
+
 			estufaEstadoMu.Lock()
-			estufaBomba[nodeID] = toBool(node["bomba_ligada"])
-			estufaVentilador[nodeID] = toBool(node["ventilador_ligado"])
-			estufaLed[nodeID] = toBool(node["led_ligado"])
+			estufaEstado[nodeID] = novo
 			estufaEstadoMu.Unlock()
 		}()
-		time.Sleep(200 * time.Millisecond)
+		time.Sleep(pollEvery)
 	}
 }
 
@@ -197,6 +219,12 @@ func toBool(v interface{}) bool {
 		return b
 	}
 	return false
+}
+
+// prefixoTipo extrai o primeiro segmento do atuador_id.
+// Ex: "bomba_estufa_a_1" -> "bomba"
+func prefixoTipo(id string) string {
+	return tipoAtuadorID(id)
 }
 
 func deriveHTTPBase(serverIP string) string {
